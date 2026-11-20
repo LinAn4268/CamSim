@@ -1,0 +1,15 @@
+// src/main.tsx — 应用入口：挂载 React、注入控制台自测函数与全局样式
+
+import React from 'react';
+import ReactDOM from 'react-dom/client';
+import { App } from './ui/App';
+import { runCameraSelfTest } from './camera/selfTest';
+import './styles.css';
+
+(window as unknown as { __cameraSelfTest: typeof runCameraSelfTest }).__cameraSelfTest = runCameraSelfTest;
+
+ReactDOM.createRoot(document.getElementById('root')!).render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>,
+);
