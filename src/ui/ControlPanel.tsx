@@ -1,12 +1,12 @@
 // src/ui/ControlPanel.tsx — 专家级相机控制面板（P0 + P1 + P2 全部参数集中可见可操作）
 
 import { useCameraStore } from '../store/useCameraStore';
-import { safeShutter } from '../camera/physics';
+import { handheldSafeShutterLimit, flashSyncDescription } from '../camera/advanced';
+import { formatShutterLabel } from '../utils/format';
 import {
   sensorFieldOfView, sensorDepthOfField, diffractionBlurForSensor, SENSOR_PROFILES, LENS_PROFILES,
   serializePreset, deserializePreset, formatFileFormat,
 } from '../camera/optics';
-import { flashSyncDescription } from '../camera/advanced';
 import { BUILTIN_LUTS } from '../camera/film';
 import type {
   MeteringMode, WbPreset, ShutterType, DriveMode, FlashSync,
@@ -132,7 +132,7 @@ export function ControlPanel() {
         <div className="info-grid">
           <div><span>景深范围</span><b>{dof.near.toFixed(2)} – {dof.far === Infinity ? '∞' : dof.far.toFixed(2)} m</b></div>
           <div><span>超焦距</span><b>{dof.hyperfocal.toFixed(1)} m</b></div>
-          <div><span>安全快门</span><b>1/{Math.round(1 / safeShutter(s.focalLength))}s</b></div>
+          <div><span>安全快门</span><b>{formatShutterLabel(handheldSafeShutterLimit(s.focalLength, sensor.crop, s.stabilization))}</b></div>
           <div><span>焦点</span><b>{(s.focusPoint.x * 100).toFixed(0)}%, {(s.focusPoint.y * 100).toFixed(0)}%</b></div>
         </div>
         <div className="btn-group">

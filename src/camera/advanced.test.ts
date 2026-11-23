@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   ndTransmission, effectiveShutter, flashExposureEV, stabilizerStops,
-  effectiveHandheldShutter, isHandheldSafe, jellyEffectStrength,
+  effectiveHandheldShutter, isHandheldSafe, handheldSafeShutterLimit, jellyEffectStrength,
   bracketEVs, hdrMergeWeight, mergeHDR, zebraThreshold, runAdvancedSelfTest,
 } from './advanced';
 
@@ -26,8 +26,29 @@ describe('advanced (P1 physics)', () => {
   it('防抖放宽安全快门 4 档', () => {
     expect(stabilizerStops(true)).toBe(4);
     expect(effectiveHandheldShutter(1 / 60, 50, 1, true)).toBeCloseTo(1 / 960, 12);
-    expect(isHandheldSafe(1 / 60, 50, 1, true)).toBe(true);
-    expect(isHandheldSafe(1 / 60, 50, 1, false)).toBe(false);
+    // 50mm 安全界限 1/50s：1/60 更快 → 安全；1/30 更慢 → 不安全
+    expect(isHandheldSafe(1 / 60, 50, 1, false)).toBe(true);
+    expect(isHandheldSafe(1 / 30, 50, 1, false)).toBe(false);
+    // 防抖 4 档把界限放宽到 1/3.125s，1/30 变安全
+    expect(isHandheldSafe(1 / 30, 50, 1, true)).toBe(true);
+  });
+
+  it('手持安全界限随焦距收紧、随裁切收紧、随防抖放宽', () => {
+    const limit50 = handheldSafeShutterLimit(50, 1, false);
+    const limit200 = handheldSafeShutterLimit(200, 1, false);
+    expect(limit50).toBeCloseTo(1 / 50, 12);
+    expect(limit200).toBeCloseTo(1 / 200, 12);
+    expect(limit200).toBeLessThan(limit50);
+    // 长焦必须用更快快门才算安全：200mm 用 1/100 不安全，1/250 才安全
+    expect(isHandheldSafe(1 / 100, 200, 1, false)).toBe(false);
+    expect(isHandheldSafe(1 / 250, 200, 1, false)).toBe(true);
+    // 裁切系数等效放大焦距
+    expect(handheldSafeShutterLimit(50, 2, false)).toBeCloseTo(1 / 100, 12);
+    // 防抖放宽 16 倍
+    expect(handheldSafeShutterLimit(200, 1, true)).toBeCloseTo(16 / 200, 12);
+    // 非法输入不产生 Infinity/NaN
+    expect(Number.isFinite(handheldSafeShutterLimit(0, 0, false))).toBe(true);
+    expect(Number.isFinite(handheldSafeShutterLimit(50, -1, false))).toBe(true);
   });
 
   it('果冻效应机械 0 / 电子 >0', () => {

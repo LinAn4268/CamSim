@@ -107,6 +107,13 @@ export function exposureDelta(actualEV: number, meteredEV: number, comp = 0): nu
   return actualEV - meteredEV - comp;
 }
 
+/**
+ * 曝光标定常数：把曝光增益换算到测试场景的线性亮度尺度上。
+ * 渲染（CameraEngine）与测光（meterScene）必须使用同一个值，
+ * 否则测光 EV 与实际 EV 相差 log2(K) 档，曝光刻度会整体偏移。
+ */
+export const EXPOSURE_CALIBRATION = 1000;
+
 /** 将线性 EV 映射到建议快门（给定光圈与 ISO）：t = N² / (ISO/100 · 2^EV) */
 export function shutterForEV(ev: number, aperture: number, iso: number): number {
   return (aperture * aperture) / ((iso / 100) * Math.pow(2, ev));

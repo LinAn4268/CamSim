@@ -74,4 +74,19 @@ describe('metering / meterScene', () => {
     expect(relativeLuminance(0, 0, 1)).toBeCloseTo(0.0722, 6);
     expect(relativeLuminance(1, 1, 1)).toBeCloseTo(1, 6);
   });
+
+  it('标定常数：与渲染共用同一增益，避免测光 EV 整体偏移', () => {
+    const g = uniform(0.18);
+    const base = meterScene(g, 'evaluative', 5.6, 400);
+    expect(base.ev).toBeCloseTo(0, 6);
+    // 亮度乘 K，EV 应恰好上移 log2(K)
+    const calibrated = meterScene(g, 'evaluative', 5.6, 400, undefined, 1000);
+    expect(calibrated.ev - base.ev).toBeCloseTo(Math.log2(1000), 6);
+    // 建议快门相应变快：同一场景下标定后快门更短
+    expect(calibrated.suggestedShutter).toBeLessThan(base.suggestedShutter);
+    // 非法标定（0/负数）回退为 1，不产生 NaN
+    const bad = meterScene(g, 'evaluative', 5.6, 400, undefined, 0);
+    expect(Number.isFinite(bad.ev)).toBe(true);
+    expect(bad.ev).toBeCloseTo(base.ev, 6);
+  });
 });

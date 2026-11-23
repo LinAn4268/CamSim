@@ -2,23 +2,22 @@
 // P1：单张 / 连拍 / 定时 / 包围曝光 / 多曝光 HDR 的拍摄编排都在这里完成。
 
 import { useEffect, useRef, useState } from 'react';
-import { CameraEngine } from '../renderer/CameraEngine';
+import { CameraEngine, RAW_W, RAW_H } from '../renderer/CameraEngine';
 import { useCameraStore, makeExif } from '../store/useCameraStore';
 import { formatShutterLabel } from '../utils/format';
-import { bracketEVs, mergeHDR, effectiveHandheldShutter, flashSyncDescription } from '../camera/advanced';
+import { bracketEVs, mergeHDR, effectiveHandheldShutter, isHandheldSafe, flashSyncDescription } from '../camera/advanced';
+import { decodeEncodedLinear } from '../camera/tonemap';
 import type { Photo } from '../types/camera';
 
-const RAW_W = 256;
-const RAW_H = 160;
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 /** 把 RGBA8 编码的线性数据解码为线性浮点（每通道 0..16）。 */
 function decodeLinear(buf: Uint8Array): Float32Array {
   const out = new Float32Array(RAW_W * RAW_H * 4);
   for (let i = 0; i < RAW_W * RAW_H * 4; i += 4) {
-    for (let ch = 0; ch < 3; ch++) {
-      out[i + ch] = 16 * Math.pow(buf[i + ch] / 255, 2);
-    }
+    out[i] = decodeEncodedLinear(buf[i]);
+    out[i + 1] = decodeEncodedLinear(buf[i + 1]);
+    out[i + 2] = decodeEncodedLinear(buf[i + 2]);
     out[i + 3] = 1;
   }
   return out;
@@ -38,7 +37,8 @@ export function Viewfinder() {
   const [error, setError] = useState<string | null>(null);
   const [flash, setFlash] = useState(false);
   const settings = useCameraStore((s) => s.settings);
-  const scene = useCameraStore((s) => s.scene);
+  // 只订阅用到的场景字段：场景光照变化不该重渲染取景器叠加层。
+  const cameraRoll = useCameraStore((s) => s.scene.cameraRoll);
   const fps = useCameraStore((s) => s.fps);
   const meterShutter = useCameraStore((s) => s.meterShutter);
   const countdown = useCameraStore((s) => s.countdown);
@@ -152,12 +152,19 @@ export function Viewfinder() {
     }
   };
 
+  // 暴露给快捷键 / 调试脚本的拍摄入口：只挂载一次，内部转发到最新的 shoot 实现，
+  // 避免每次渲染都重新赋值 window 属性。
+  const shootRef = useRef(shoot);
+  shootRef.current = shoot;
   useEffect(() => {
-    (window as unknown as { __cameraCapture: () => void }).__cameraCapture = shoot;
-  });
+    (window as unknown as { __cameraCapture: () => void }).__cameraCapture = () => { void shootRef.current(); };
+  }, []);
 
-  const safeInfo = effectiveHandheldShutter(settings.shutter, settings.focalLength, engineRef.current?.getCropFactor() ?? 1, settings.stabilization);
-  const handheldSafe = safeInfo >= settings.shutter; // 防抖折算后等效快门更短则更安全
+  // 手持安全判断直接用物理判定：安全快门 = 1/(焦距×裁切系数)，防抖再加 2^N 档宽容度。
+  // 下面的折算快门仅用于状态栏显示（开启防抖时相机“表现得像”用了更快的快门）。
+  const crop = engineRef.current?.getCropFactor() ?? 1;
+  const handheldSafe = isHandheldSafe(settings.shutter, settings.focalLength, crop, settings.stabilization);
+  const effectiveSafeShutter = effectiveHandheldShutter(settings.shutter, settings.focalLength, crop, settings.stabilization);
 
   return (
     <div className="viewfinder" ref={hostRef}>
@@ -182,9 +189,9 @@ export function Viewfinder() {
           </div>
         )}
         {settings.level && (
-          <div className="level-overlay" style={{ transform: `translate(-50%,-50%) rotate(${-scene.cameraRoll}deg)` }}>
+          <div className="level-overlay" style={{ transform: `translate(-50%,-50%) rotate(${-cameraRoll}deg)` }}>
             <div className="level-line" />
-            <span className="level-label">水平 {scene.cameraRoll.toFixed(1)}°</span>
+            <span className="level-label">水平 {cameraRoll.toFixed(1)}°</span>
           </div>
         )}
         {settings.zebra && <div className="zebra-hint">斑马纹：高亮区域显示斜纹警告</div>}
@@ -206,7 +213,10 @@ export function Viewfinder() {
         </div>
         <div className="vf-status">
           <span>{settings.shutterType === 'electronic' ? '电子快门' : '机械快门'}</span>
-          <span>{settings.stabilization ? 'IS ON' : 'IS OFF'} {handheldSafe ? '· 手持安全' : '· 建议使用三脚架'}</span>
+          <span>
+            {settings.stabilization ? 'IS ON' : 'IS OFF'} {handheldSafe ? '· 手持安全' : '· 建议使用三脚架'}
+            {settings.stabilization && <span className="hint"> · 等效 {formatShutterLabel(effectiveSafeShutter)}</span>}
+          </span>
           <span className="vf-spacer" />
           {settings.ndStops > 0 && <span>ND {settings.ndStops} 档 · 等效 {formatShutterLabel(settings.shutter * Math.pow(2, settings.ndStops))}</span>}
           {settings.flashEnabled && <span title={flashSyncDescription(settings.flashSync, settings.shutter)}>闪光灯 {settings.flashPowerEV >= 0 ? '+' : ''}{settings.flashPowerEV}EV</span>}

@@ -17,6 +17,7 @@ export default defineConfig({
         'src/camera/**/*.ts',
         'src/utils/**/*.ts',
         'src/store/**/*.ts',
+        'src/renderer/pipelinePlan.ts',
       ],
       exclude: [
         'src/**/*.test.ts',

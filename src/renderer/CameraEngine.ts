@@ -10,19 +10,23 @@ import {
   FRAG_ZEBRA, FRAG_STABILIZE,
 } from './shaders/chains';
 import { whiteBalanceGain } from '../camera/whiteBalance';
-import { exposureGain, clamp, COC_LIMIT } from '../camera/physics';
+import { exposureGain, clamp, COC_LIMIT, EXPOSURE_CALIBRATION } from '../camera/physics';
 import { meterScene } from '../camera/metering';
 import {
   jellyEffectStrength, zebraThreshold, flashExposureEV, effectiveShutter,
 } from '../camera/advanced';
 import { filmGrade, parseCubeLUT, BUILTIN_LUTS } from '../camera/film';
 import { sensorNoiseScale, diffractionBlurForSensor, SENSOR_PROFILES } from '../camera/optics';
+import { noiseCoefficients } from '../camera/noise';
+import { linearToDisplayByte, decodeEncodedLinear } from '../camera/tonemap';
+import { planPipeline, decideQuality, type PipelinePlan, type QualityTier } from './pipelinePlan';
 import type { CameraSettings, Photo, FileFormat, PhotoExif } from '../types/camera';
 import { useCameraStore, makeExif } from '../store/useCameraStore';
 
-const CALIBRATION_K = 1000; // 曝光标定常数：使默认 f/5.6、1/125、ISO400 接近正确曝光
-const RAW_W = 256; // RAW/HDR 线性读出分辨率（降采样以控制回读开销）
-const RAW_H = 160;
+const CALIBRATION_K = EXPOSURE_CALIBRATION; // 曝光标定常数（与测光共用，避免 EV 偏移）
+/** RAW/HDR 线性读出分辨率（降采样以控制回读开销）。UI 侧解码时需要同一组数值。 */
+export const RAW_W = 256;
+export const RAW_H = 160;
 
 function glMaxTextureSize(renderer: THREE.WebGLRenderer): number {
   const gl = renderer.getContext();
@@ -114,15 +118,33 @@ export class CameraEngine {
 
   private width = 1;
   private height = 1;
-  private quality: 'high' | 'medium' | 'low' = 'high';
+  private quality: QualityTier = 'high';
+  /** 是否允许按帧率自动降级；外部显式调用 setQuality 会关闭自动降级。 */
+  private autoQuality = true;
+  /** 连续低帧率累计秒数（用于自适应降级判定）。 */
+  private lowStreak = 0;
+  /** 当前帧的管线计划：决定哪些零效果 pass 可以整屏跳过。 */
+  private plan: PipelinePlan = { motion: false, jelly: false, stabilize: false, mask: false };
+  /** 本帧是否需要胶片模拟 / LUT pass（标准胶片且无 LUT 时它就是恒等变换，纯浪费）。 */
+  private needsGrade = false;
+  /** 测光异步回读是否在途（避免排队堆积）。 */
+  private measuring = false;
+  /** 测光/直方图回读缓冲：复用同一块内存，避免每 4 帧分配一次。 */
+  private readonly meterBuf = new Uint8Array(64 * 40 * 4);
+  private readonly histBuf = new Uint8Array(160 * 100 * 4);
+  private readonly meterGrid = new Float32Array(64 * 40);
   private raf = 0;
   private lastTime = 0;
+  /** 上一帧的真实帧间隔：拍摄时沿用它计算屏幕运动速度，避免 dt=0 导致照片丢掉运动模糊。 */
+  private lastDt = 1 / 60;
   private frameCount = 0;
   private fpsTimer = 0;
   private disposed = false;
   private evOverride: number | null = null; // 包围曝光的临时 EV 偏移
   private lutTexture: THREE.DataTexture | null = null;
   private lutStateName = '';
+  /** 胶片模拟参数缓存：只在 filmSim 变化时重建，避免每帧复制矩阵数组。 */
+  private gradeCache: { sim: string; grade: ReturnType<typeof filmGrade> } | null = null;
 
   // 相机轨道控制状态
   private orbitTarget = new THREE.Vector3(0, 1.35, -4);
@@ -141,7 +163,10 @@ export class CameraEngine {
 
     this.renderer = new THREE.WebGLRenderer({
       canvas: this.canvas, antialias: false, alpha: false,
-      powerPreference: 'high-performance', preserveDrawingBuffer: true,
+      powerPreference: 'high-performance',
+      // 照片一律从 finalRT（渲染目标）回读，从不读默认帧缓冲，因此无需保留绘制缓冲。
+      // 关掉它可以省去每帧一次全帧拷贝 —— 这是 WebGL 里最容易被忽略的性能坑。
+      preserveDrawingBuffer: false,
     });
     this.renderer.outputColorSpace = THREE.LinearSRGBColorSpace; // 我们在 tonemap pass 手动做 sRGB
     this.renderer.toneMapping = THREE.NoToneMapping;
@@ -195,7 +220,7 @@ export class CameraEngine {
       uStrength: { value: 0.3 }, uDistortion: { value: 0 },
     });
     this.noisePass = new Pass('噪点', FRAG_NOISE, {
-      uIso: { value: 400 }, uSensorScale: { value: 1 }, uTime: { value: 0 },
+      uShotK: { value: 0.003 }, uReadK: { value: 0.000025 }, uTime: { value: 0 },
     });
     this.sharpenPass = new Pass('锐化+衍射', FRAG_SHARPEN, {
       uTexel: { value: new THREE.Vector2(1, 1) }, uDiffraction: { value: 0 },
@@ -231,9 +256,17 @@ export class CameraEngine {
     });
   }
 
-  setQuality(q: 'high' | 'medium' | 'low'): void {
+  setQuality(q: QualityTier): void {
     this.quality = q;
+    this.autoQuality = false; // 用户/外部显式指定画质后不再自动降级
+    this.lowStreak = 0;
     this.resize();
+  }
+
+  /** 是否启用基于帧率的自适应画质（默认开启）。 */
+  setAutoQuality(enabled: boolean): void {
+    this.autoQuality = enabled;
+    this.lowStreak = 0;
   }
 
   resize(): void {
@@ -246,13 +279,17 @@ export class CameraEngine {
     const scale = this.quality === 'high' ? Math.min(devicePixelRatio || 1, 2)
       : this.quality === 'medium' ? Math.min(devicePixelRatio || 1, 1.5) * 0.85 : 0.7;
     const maxDim = Math.min(glMaxTextureSize(this.renderer), 4096);
-    const w = Math.max(280, Math.min(maxDim, Math.floor(cssW * scale)));
-    const h = Math.max(200, Math.min(maxDim, Math.floor(cssH * scale)));
+    const limit = Math.min(1, maxDim / Math.max(cssW * scale, cssH * scale, 1));
+    // 缓冲区必须与 CSS 容器同宽高比，否则画面会被拉伸；低画质档只是等比缩小。
+    const w = Math.max(2, Math.floor(cssW * scale * limit));
+    const h = Math.max(2, Math.floor(cssH * scale * limit));
     if (w === this.width && h === this.height && this.sceneRT) return;
     this.width = w;
     this.height = h;
-    this.canvas.width = w;
-    this.canvas.height = h;
+    // setSize(..., false) 只改缓冲区与视口，不写 canvas 的 CSS 尺寸（避免 ResizeObserver 正反馈）；
+    // 不调用它的话 three 的视口会停留在默认 300×150，屏幕输出只画左下角一块。
+    this.renderer.setSize(w, h, false);
+    this.renderer.setViewport(0, 0, w, h);
 
     this.testScene?.setAspect(cssW / cssH);
 
@@ -352,35 +389,61 @@ export class CameraEngine {
     this.testScene.update(dt, s, sc);
     this.updateUniforms(s, time, dt);
 
-    // 1. 场景与遮罩（线性 HDR）
+    // 1. 场景（线性 HDR）。遮罩场景只服务于运动模糊，模糊被跳过时不再渲染它。
     this.renderer.setRenderTarget(this.sceneRT);
     this.renderer.clear(true, true, true);
     this.renderer.render(this.testScene.scene, this.testScene.camera);
-    this.renderer.setRenderTarget(this.maskRT);
-    this.renderer.clear(true, true, true);
-    this.renderer.render(this.testScene.maskScene, this.testScene.camera);
+    if (this.plan.mask) {
+      this.renderer.setRenderTarget(this.maskRT);
+      this.renderer.clear(true, true, true);
+      this.renderer.render(this.testScene.maskScene, this.testScene.camera);
+    }
 
-    // 2. 后期链（ping-pong）
+    // 2. 后期链（ping-pong）：零效果的整屏 pass 直接跳过，省掉全分辨率采样。
+    const targets = [this.pp.a, this.pp.b];
+    let ppIndex = 0;
+    const chain: Array<[Pass, THREE.WebGLRenderTarget]> = [];
+    const push = (pass: Pass): void => {
+      chain.push([pass, targets[ppIndex]]);
+      ppIndex ^= 1;
+    };
+    push(this.wbPass);                                     // 白平衡 + 曝光
+    push(this.dofPass);                                    // 景深
+    if (this.plan.motion) push(this.motionPass);            // 运动模糊（无位移时跳过）
+    push(this.chromaPass);                                 // 色差
+    push(this.vignettePass);                               // 暗角 + 畸变
+    push(this.noisePass);                                  // 噪点
+    push(this.sharpenPass);                                // 锐化 / 衍射
+    if (this.plan.jelly) push(this.jellyPass);             // 果冻效应（机械快门恒无）
+    if (this.plan.stabilize) push(this.stabilizePass);     // 手抖（幅度过小无意义）
+    push(this.tonePass);                                   // 色调映射 + sRGB
+    if (this.needsGrade) push(this.gradePass);             // 胶片模拟 / LUT（标准胶片时恒等，跳过）
+
+    // 链尾直接落到 finalRT，省掉一次「pp → finalRT」的额外整屏拷贝。
+    if (chain.length > 0) chain[chain.length - 1][1] = this.finalRT;
+
     let src: THREE.Texture = this.sceneRT.texture;
-    const chain: Array<[Pass, THREE.WebGLRenderTarget]> = [
-      [this.wbPass, this.pp.a],
-      [this.dofPass, this.pp.b],
-      [this.motionPass, this.pp.a],
-      [this.chromaPass, this.pp.b],
-      [this.vignettePass, this.pp.a],
-      [this.noisePass, this.pp.b],
-      [this.sharpenPass, this.pp.a],
-      [this.jellyPass, this.pp.b],
-      [this.stabilizePass, this.pp.a],
-      [this.tonePass, this.pp.b],
-      [this.gradePass, this.finalRT],
-    ];
     for (let i = 0; i < chain.length; i++) {
       const [pass, target] = chain[i];
       pass.render(this.renderer, src, target);
       src = target.texture;
       // 白平衡+曝光之后立刻抓取曝光后的线性 HDR，供 RAW / HDR 使用
-      if (i === 0) this.encodeRawPass.render(this.renderer, this.pp.a.texture, this.rawRT);
+      if (i === 0) this.encodeRawPass.render(this.renderer, src, this.rawRT);
+    }
+  }
+
+  /** 按帧率做自适应画质降级（README 承诺的移动端降级路径）。 */
+  private adaptQuality(dt: number, fps: number): void {
+    if (!this.autoQuality) return;
+    const decision = decideQuality({
+      tier: this.quality, fps, lowStreak: this.lowStreak, elapsed: dt,
+      canDegrade: !this.disposed,
+    });
+    this.lowStreak = decision.lowStreak;
+    if (decision.changed) {
+      this.quality = decision.tier;
+      this.resize();
+      console.info(`[相机] 帧率偏低，已自动降低渲染画质至 ${decision.tier}`);
     }
   }
 
@@ -388,10 +451,13 @@ export class CameraEngine {
     if (this.disposed) return;
     const dt = Math.min(0.1, (now - this.lastTime) / 1000);
     this.lastTime = now;
+    if (dt > 0) this.lastDt = dt;
     this.frameCount++;
     this.fpsTimer += dt;
     if (this.fpsTimer > 0.5) {
-      useCameraStore.getState().setFps(Math.round(this.frameCount / this.fpsTimer));
+      const fps = Math.round(this.frameCount / this.fpsTimer);
+      useCameraStore.getState().setFps(fps);
+      this.adaptQuality(this.fpsTimer, fps);
       this.frameCount = 0; this.fpsTimer = 0;
     }
 
@@ -493,6 +559,7 @@ export class CameraEngine {
 
     const m = this.motionPass.material.uniforms;
     const vel = this.testScene.getScreenVelocity(dt);
+    const motionLength = Math.hypot(vel.x, vel.y) * tEff;
     m.uVelocity.value.set(vel.x, vel.y);
     m.uShutter.value = tEff;
     m.tMask.value = this.maskRT.texture;
@@ -506,27 +573,38 @@ export class CameraEngine {
     v.uDistortion.value = clamp((50 - s.focalLength) / 50 * 0.06, -0.03, 0.06);
 
     const n = this.noisePass.material.uniforms;
-    n.uIso.value = s.iso; n.uTime.value = time;
-    n.uSensorScale.value = sensorNoiseScale(s.sensor); // P2：小传感器噪点更明显
+    // 噪声系数由相机参数算出（camera/noise.ts），着色器只负责逐像素 √信号形状
+    const noiseCoef = noiseCoefficients(s.iso, sensorNoiseScale(s.sensor));
+    n.uShotK.value = noiseCoef.shotK;
+    n.uReadK.value = noiseCoef.readK;
+    n.uTime.value = time;
 
     const sh = this.sharpenPass.material.uniforms;
     // 瑞利判据：2.44·λ·N（λ=0.55μm），按传感器裁切系数缩放（P2）
     sh.uDiffraction.value = clamp((diffractionBlurForSensor(s.aperture, s.sensor) - 6) / 48, 0, 1);
 
     const j = this.jellyPass.material.uniforms;
-    j.uStrength.value = jellyEffectStrength(s.shutterType, tEff);
+    const jellyStrength = jellyEffectStrength(s.shutterType, tEff);
+    j.uStrength.value = jellyStrength;
     j.uVelocity.value.set(vel.x, vel.y);
     j.uReadout.value = 0.04;
 
     const stb = this.stabilizePass.material.uniforms;
     // 手抖幅度：慢快门更大；防抖开启后大幅减小（近似）
-    stb.uShake.value = s.stabilization ? 0.25 : clamp(tEff * 45, 0, 2.4);
+    const shakePixels = s.stabilization ? 0.25 : clamp(tEff * 45, 0, 2.4);
+    stb.uShake.value = shakePixels;
     stb.uTime.value = time;
+
+    // 管线早退计划：与 shader 内部的阈值保持一致，避免「白跑一遍全屏采样」。
+    this.plan = planPipeline({ motionLength, jellyStrength, shakePixels });
 
     this.zebraPass.material.uniforms.uThreshold.value = zebraThreshold();
 
-    // 胶片模拟：把 CPU 端参数映射到 GLSL uniform
-    const grade = filmGrade(s.filmSim);
+    // 胶片模拟：把 CPU 端参数映射到 GLSL uniform（参数只在胶片样式变化时重算）
+    if (!this.gradeCache || this.gradeCache.sim !== s.filmSim) {
+      this.gradeCache = { sim: s.filmSim, grade: filmGrade(s.filmSim) };
+    }
+    const grade = this.gradeCache.grade;
     const g = this.gradePass.material.uniforms;
     const m3 = g.uMatrix.value as THREE.Matrix3;
     m3.set(grade.matrix[0], grade.matrix[1], grade.matrix[2],
@@ -537,31 +615,68 @@ export class CameraEngine {
     (g.uGain.value as THREE.Vector3).setScalar(grade.gain);
     g.uContrast.value = grade.contrast;
     g.uSaturation.value = grade.saturation;
-    this.updateLutTexture(s);
+    const lutActive = this.updateLutTexture(s);
+    // 标准胶片（恒等矩阵 + 无 LUT）时 grade pass 不改变任何像素，整屏跑一遍纯属浪费。
+    // 判定条件与 FILM_GRADES.standard 的定义保持一致。
+    this.needsGrade = lutActive || s.filmSim !== 'standard';
 
     const p = this.peakPass.material.uniforms;
     p.uNear.value = this.testScene.camera.near; p.uFar.value = this.testScene.camera.far;
     p.uFocus.value = s.focusDistance; p.uFocal.value = s.focalLength; p.uAperture.value = s.aperture;
   }
 
-  /** 从 HDR 场景（曝光前）读取测光亮度，从最终图像读取直方图 */
+  /**
+   * 从 HDR 场景（曝光前）读取测光亮度，从最终图像读取直方图。
+   * 回读走 readRenderTargetPixelsAsync（PBO + fenceSync），避免同步 readPixels 造成的
+   * 管线停顿；同一时刻只允许一次在途回读，低帧率时自然降频而不是排队堆积。
+   */
   private measure(s: CameraSettings): void {
+    if (this.measuring) return;
+    this.measuring = true;
+
     this.lumaPass.render(this.renderer, this.sceneRT.texture, this.meterRT);
-    const meterBuf = new Uint8Array(64 * 40 * 4);
-    this.renderer.readRenderTargetPixels(this.meterRT, 0, 0, 64, 40, meterBuf);
-    const grid = new Float32Array(64 * 40);
+    this.copyPass.render(this.renderer, this.finalRT.texture, this.histRT);
+
+    const meterBuf = this.meterBuf;
+    const histBuf = this.histBuf;
+
+    void (async () => {
+      try {
+        await (this.renderer.readRenderTargetPixelsAsync(this.meterRT, 0, 0, 64, 40, meterBuf) as Promise<Uint8Array>);
+        await (this.renderer.readRenderTargetPixelsAsync(this.histRT, 0, 0, 160, 100, histBuf) as Promise<Uint8Array>);
+        if (this.disposed) return;
+        this.applyMeasure(s, meterBuf, histBuf);
+      } catch (err) {
+        // 异步回读失败（极少见）时退回同步读取，保证测光/直方图不中断。
+        if (!this.disposed) {
+          console.warn('[相机] 异步回读失败，回退同步读取：', err);
+          try {
+            this.renderer.readRenderTargetPixels(this.meterRT, 0, 0, 64, 40, meterBuf);
+            this.renderer.readRenderTargetPixels(this.histRT, 0, 0, 160, 100, histBuf);
+            this.applyMeasure(s, meterBuf, histBuf);
+          } catch (err2) {
+            console.warn('[相机] 测光回读失败：', err2);
+          }
+        }
+      } finally {
+        this.measuring = false;
+      }
+    })();
+  }
+
+  /** 把回读到的测光网格与直方图缓冲折算成状态。 */
+  private applyMeasure(s: CameraSettings, meterBuf: Uint8Array, histBuf: Uint8Array): void {
+    const grid = this.meterGrid;
     for (let i = 0; i < grid.length; i++) {
       const e = meterBuf[i * 4] / 255;
       grid[i] = 16 * e * e; // 解码回线性亮度
     }
     const result = meterScene(
       { width: 64, height: 40, data: grid }, s.metering, s.aperture, s.iso, s.focusPoint,
+      CALIBRATION_K,
     );
     useCameraStore.getState().setMeter(result.ev, result.suggestedShutter);
 
-    this.copyPass.render(this.renderer, this.finalRT.texture, this.histRT);
-    const histBuf = new Uint8Array(160 * 100 * 4);
-    this.renderer.readRenderTargetPixels(this.histRT, 0, 0, 160, 100, histBuf);
     const BINS = 64;
     const hist = { r: new Array(BINS).fill(0), g: new Array(BINS).fill(0), b: new Array(BINS).fill(0), luma: new Array(BINS).fill(0) };
     let over = 0, under = 0;
@@ -584,8 +699,27 @@ export class CameraEngine {
     return this.testScene.autoFocusAt(0.5, 0.5);
   }
 
+  /**
+   * 同步回读前解除 PIXEL_PACK_BUFFER 绑定。
+   *
+   * three 的 readRenderTargetPixelsAsync 会在整个 await 期间把 PBO 绑在
+   * PIXEL_PACK_BUFFER 上（等 fenceSync 完成才解绑）。在那期间调用同步
+   * readRenderTargetPixels 会被 WebGL 判为 INVALID_OPERATION 并静默返回全 0，
+   * 表现就是「异步测光在途时按快门拍到全黑照片」。
+   * 解绑不影响 three 后续的 getBufferSubData（它按 buffer 对象取数据，不依赖绑定）。
+   */
+  private ensureSyncReadSafe(): void {
+    const gl = this.renderer.getContext() as WebGL2RenderingContext;
+    if (gl.getParameter(gl.PIXEL_PACK_BUFFER_BINDING) !== null) {
+      gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+      // 清掉此前因冲突累积的 INVALID_OPERATION，避免污染后续错误判定
+      for (let i = 0; i < 8 && gl.getError() !== gl.NO_ERROR; i++) { /* drain */ }
+    }
+  }
+
   /** 读取 finalRT 显示为 dataURL（上下翻转修正 WebGL 原点）。 */
   private readDisplay(): string {
+    this.ensureSyncReadSafe();
     const buf = new Uint8Array(this.width * this.height * 4);
     this.renderer.readRenderTargetPixels(this.finalRT, 0, 0, this.width, this.height, buf);
     const row = this.width * 4;
@@ -602,6 +736,7 @@ export class CameraEngine {
 
   /** 读取编码后的线性 HDR 数据（RAW / HDR 用）。 */
   private readRawEncoded(): Uint8Array {
+    this.ensureSyncReadSafe();
     const buf = new Uint8Array(RAW_W * RAW_H * 4);
     this.renderer.readRenderTargetPixels(this.rawRT, 0, 0, RAW_W, RAW_H, buf);
     return buf;
@@ -612,8 +747,11 @@ export class CameraEngine {
    * 临时改写曝光增益、同步重渲染管线，读取显示帧与线性帧，随后恢复。
    */
   captureWithEV(evOffset: number): FrameCapture {
+    // 用上一帧的真实间隔推进场景：若传 0，运动物体位移为 0 → 照片会丢掉运动模糊，
+    // 与实时取景看到的画面不一致。
+    const step = this.lastDt > 0 ? Math.min(0.1, this.lastDt) : 1 / 60;
     this.evOverride = evOffset;
-    this.renderPipeline(0, performance.now() / 1000);
+    this.renderPipeline(step, performance.now() / 1000);
     this.evOverride = null;
     return {
       dataUrl: this.readDisplay(),
@@ -638,7 +776,7 @@ export class CameraEngine {
     };
   }
 
-  /** 由线性编码数据构造 RAW/HDR 预览照片（CPU 端 ACES + sRGB）。 */
+  /** 由线性编码数据构造 RAW/HDR 预览照片（CPU 端 ACES + sRGB，与 tonemap pass 同一套模型）。 */
   makeLinearPhoto(
     linear: Uint8Array | Float32Array,
     encoded: boolean,
@@ -648,19 +786,22 @@ export class CameraEngine {
     cv.width = RAW_W; cv.height = RAW_H;
     const ctx = cv.getContext('2d')!;
     const img = ctx.createImageData(RAW_W, RAW_H);
+    const bytes = img.data;
     for (let i = 0; i < RAW_W * RAW_H; i++) {
       const src = i * 4;
-      const rgb = [0, 1, 2].map((ch) => {
-        const v = encoded ? 16 * Math.pow((linear as Uint8Array)[src + ch] / 255, 2)
-          : (linear as Float32Array)[src + ch];
-        const x = clamp(v, 0, 16);
-        const aces = clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0, 1);
-        return Math.round(Math.pow(aces, 1 / 2.2) * 255);
-      });
-      img.data[i * 4] = rgb[0];
-      img.data[i * 4 + 1] = rgb[1];
-      img.data[i * 4 + 2] = rgb[2];
-      img.data[i * 4 + 3] = 255;
+      const dst = i * 4;
+      if (encoded) {
+        const u = linear as Uint8Array;
+        bytes[dst] = linearToDisplayByte(decodeEncodedLinear(u[src]));
+        bytes[dst + 1] = linearToDisplayByte(decodeEncodedLinear(u[src + 1]));
+        bytes[dst + 2] = linearToDisplayByte(decodeEncodedLinear(u[src + 2]));
+      } else {
+        const f = linear as Float32Array;
+        bytes[dst] = linearToDisplayByte(f[src]);
+        bytes[dst + 1] = linearToDisplayByte(f[src + 1]);
+        bytes[dst + 2] = linearToDisplayByte(f[src + 2]);
+      }
+      bytes[dst + 3] = 255;
     }
     ctx.putImageData(img, 0, 0);
     return {

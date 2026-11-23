@@ -8,6 +8,9 @@ import { whiteBalanceGain, kelvinToRGB } from './whiteBalance';
 import { runAdvancedSelfTest } from './advanced';
 import { runOpticsSelfTest } from './optics';
 import { runFilmSelfTest } from './film';
+import { runTonemapSelfTest } from './tonemap';
+import { runPipelinePlanSelfTest } from '../renderer/pipelinePlan';
+import { runNoiseSelfTest } from './noise';
 
 interface Check { name: string; pass: boolean; detail: string }
 
@@ -76,6 +79,16 @@ export function runCameraSelfTest(): { passed: number; total: number; checks: Ch
   // P1 / P2 模块自测并入主自测
   for (const group of [runAdvancedSelfTest(), runOpticsSelfTest(), runFilmSelfTest()]) {
     for (const c of group) checks.push({ name: `[P1/P2] ${c.name}`, pass: c.pass, detail: c.detail });
+  }
+  // 渲染管线早退 / 色调映射 / 自适应画质
+  for (const c of runTonemapSelfTest()) {
+    checks.push({ name: `[渲染] ${c.name}`, pass: c.pass, detail: c.detail });
+  }
+  for (const c of runPipelinePlanSelfTest()) {
+    checks.push({ name: `[管线] ${c.name}`, pass: c.pass, detail: c.detail });
+  }
+  for (const c of runNoiseSelfTest()) {
+    checks.push({ name: `[噪声] ${c.name}`, pass: c.pass, detail: c.detail });
   }
 
   const passed = checks.filter(c => c.pass).length;

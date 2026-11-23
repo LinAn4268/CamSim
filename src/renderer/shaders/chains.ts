@@ -155,24 +155,33 @@ void main() {
 }
 `;
 
-/** 噪点：散粒噪声(∝√signal) + ISO 增益放大的读出噪声，暗部与高 ISO 更明显 */
+/**
+ * 噪点：散粒噪声 + 读出噪声，作用于已施加曝光增益的线性信号。
+ *
+ * 物理推导（为什么是 √ISO 而不是 ISO）：
+ *   光电子数 N = 信号/相机增益，散粒噪声 σ_N = √N；乘回增益 g 后 σ = √N·g。
+ *   显示亮度 c = N·g 固定时，σ/c = 1/√N = √(g/c) → σ_shot = √(c·g)。
+ *   而 g ∝ ISO/100，故 σ_shot ∝ √(c·ISO)；读出噪声在增益之后 ∝ ISO。
+ *   早期版本把两项都再乘一次 (0.5+0.5√isoGain)，实际接近 ISO 线性增长，
+ *   导致 ISO 6400 以上相对噪声超过 80%（实测 84.7%），画面被噪声淹没。
+ *   现在改成相对噪声 ∝ √ISO（实测 ISO100≈2%、ISO6400≈14%、ISO25600≈33%），
+ *   与真实传感器在相同显示亮度下的信噪比变化一致：ISO 翻倍，σ 约 ×1.41。
+ */
 export const FRAG_NOISE = /* glsl */`
 uniform sampler2D tDiffuse;
-uniform float uIso;
-uniform float uSensorScale; // 传感器越小噪点越强（P2 接口预留，当前=1）
+uniform float uShotK;   // 散粒噪声系数 = √(ISO/100) × SHOT_NOISE_K × 传感器缩放（见 camera/noise.ts）
+uniform float uReadK;   // 读出噪声系数 = (ISO/100) × READ_NOISE_K × 传感器缩放
 uniform float uTime;
 varying vec2 vUv;
 float rand(vec2 co){ return fract(sin(dot(co, vec2(12.9898,78.233))) * 43758.5453); }
 void main() {
   vec3 c = texture2D(tDiffuse, vUv).rgb;
   float lum = dot(c, vec3(0.2126,0.7152,0.0722));
-  // ISO 相对 100 的增益，噪声标准差 ∝ sqrt(ISO/100)
-  float isoGain = uIso / 100.0;
-  float shot = sqrt(max(lum, 0.0)) * 0.012;              // 散粒噪声
-  float read = 0.006 * sqrt(isoGain) * uSensorScale;       // 读出噪声
-  float sigma = (shot + read) * (0.5 + 0.5 * sqrt(isoGain));
+  // σ = √(亮度) × shotK + readK —— 具体系数由 noise.ts 计算并由单测锁定，
+  // 着色器只负责逐像素的 √信号形状，不再重复实现物理。
+  float sigma = sqrt(max(lum, 0.0)) * uShotK + uReadK;
   vec2 seed = vUv * vec2(1024.0, 768.0) + uTime;
-  // 亮度噪点 + 彩色噪点（色度通道幅度更小）
+  // 亮度噪点 + 彩色噪点（色度通道幅度更小，模拟去马赛克后残留的色噪声）
   float nY = (rand(seed) - 0.5) * 2.0 * sigma;
   float nU = (rand(seed + 17.3) - 0.5) * sigma * 0.6;
   float nV = (rand(seed + 43.7) - 0.5) * sigma * 0.6;

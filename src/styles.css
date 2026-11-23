@@ -43,9 +43,11 @@ button { cursor: pointer; font-family: inherit; }
   position: relative; flex: 1; min-height: 260px; background: #000;
   border: 1px solid var(--line); border-radius: 6px; overflow: hidden;
 }
-/* canvas 绝对定位，脱离 flex 布局，避免其内在尺寸反向撑大父容器 */
-.gl-canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
-.vf-overlay { position: absolute; inset: 0; pointer-events: none; }
+/* canvas 绝对定位，脱离 flex 布局，避免其内在尺寸反向撑大父容器。
+   注意：引擎用 appendChild 挂载 canvas，它会排在 .vf-overlay 之后，
+   若不给层级就会把 HUD 整层盖住——因此显式压到 0 层。 */
+.gl-canvas { position: absolute; inset: 0; z-index: 0; display: block; width: 100%; height: 100%; }
+.vf-overlay { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
 .vf-topbar {
   position: absolute; top: 0; left: 0; right: 0; display: flex; align-items: center;
   gap: 10px; padding: 8px 12px; font-size: 11px; letter-spacing: .8px;

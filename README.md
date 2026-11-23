@@ -14,7 +14,7 @@ pnpm install
 pnpm dev      # http://127.0.0.1:5173
 # 生产构建
 pnpm build
-# 单元测试（70 项）
+# 单元测试（112 项）
 pnpm test
 # 监视模式（开发时自动重跑）
 pnpm test:watch
@@ -24,7 +24,7 @@ pnpm test:coverage
 
 > Windows 编辑器原子保存可能触发 Vite 原生监听 EBUSY，`vite.config.ts` 已启用 `server.watch.usePolling` 规避。
 
-浏览器控制台会输出 `[相机自测] 49/49 通过`。关键调试入口：`window.__cameraEngine`（引擎）、`window.__cameraStore`（Zustand store）、`window.__cameraCapture()`（拍摄，含驱动/包围/HDR 编排）、`window.__cameraSelfTest()`（浏览器自测）。
+浏览器控制台会输出 `[相机自测] 77/77 通过`。关键调试入口：`window.__cameraEngine`（引擎）、`window.__cameraStore`（Zustand store）、`window.__cameraCapture()`（拍摄，含驱动/包围/HDR 编排）、`window.__cameraSelfTest()`（浏览器自测）。
 
 ## 部署到 GitHub Pages
 
@@ -103,7 +103,7 @@ pnpm test:coverage
 - EV 与曝光增益（严格按光圈/快门/ISO 的 2 的幂关系）
 - 超焦距/景深/弥散圆（薄透镜模型，c 随传感器变化：全画幅 0.03mm / APS-C 0.02mm / M4/3 0.015mm）
 - 色温→RGB 增益（CIE 近似色温表插值，取倒数归一化）
-- 散粒噪声 ∝√信号、读出噪声 ∝√ISO（按传感器缩放）
+- 散粒噪声 ∝√(信号×ISO)、读出噪声 ∝ISO（按传感器缩放）；系数集中在 `src/camera/noise.ts`，着色器只保留逐像素 √信号形状
 - ACES 色调映射 + 高光肩部滚降
 - 衍射斑 `2.44λN`（按裁切系数折算）
 - 运动模糊长度 ∝ 快门时间 × 屏幕速度
@@ -121,7 +121,7 @@ pnpm test:coverage
 - **果冻效应**：逐行水平剪切近似 CMOS 卷帘读出，未建模逐行曝光时刻的透视变化
 - **闪光**：作为曝光增益加权叠加，未模拟闪光与环境光的光质/色温混合与阴影
 - **色差**：屏幕径向偏移模拟横向色差，未按波长色散积分
-- **噪点**：伪随机分布，未模拟拜耳阵列与去马赛克
+- **噪点**：伪随机分布（每帧变化），未模拟拜耳阵列与去马赛克；读出噪声为便于观察略高于真实全画幅水平
 - **HDR 融合**：中调高斯权重启发式，非严格跟随传感器响应曲线的 Mertens 算法
 - **胶片模拟/LUT**：风格化矩阵与查表，非真实胶片光谱响应
 - **测光亮度**：线性场景亮度加权，非 CIE 1931 标准观察者完整模型
@@ -131,10 +131,66 @@ pnpm test:coverage
 ## 已知限制
 - 仅 WebGL2；WebGPU 后端接口预留但未实现
 - 移动端可操作核心参数但取景器尺寸受限
-- 单 693KB JS chunk（Vite 提示，非错误），可后续代码分割
+- 已按 three / react / 业务代码分块（470KB + 141KB + 88KB），首屏仍约 700KB 总量
 - 点击对焦使用屏幕 NDC 射线，边缘点可能命中背景（返回较大距离）
 - 连拍为定时轮询拍摄，非真正高速缓存写入（受浏览器渲染节奏限制）
 - RAW 为线性 readback + 机内预览，非传感器原始拜耳数据
+
+## 性能优化（每帧管线）
+
+优化集中在「不该算的别算、不该同步等的别等」三条线上，均已落地并有单测覆盖。
+
+### 1. 按需跳过整屏 pass（src/renderer/pipelinePlan.ts）
+每帧根据实际参数决定是否执行 motion / jelly / stabilize 三个昂贵的 12-tap 全屏卷积，并联动决定是否渲染运动遮罩场景：
+
+| pass | 跳过条件 | 常量 |
+|---|---|---|
+| 运动模糊 | 帧内位移 × 快门 < 0.0005 | `MOTION_MIN_LENGTH` |
+| 果冻效应 | 强度 < 0.001（机械快门恒为 0） | `JELLY_MIN_STRENGTH` |
+| 防抖抖动 | 抖动 < 0.01 像素 | `SHAKE_MIN_PIXELS` |
+| 遮罩场景 | 随运动模糊一同跳过 | `plan.mask = plan.motion` |
+
+胶片模拟/LUT 同理：标准胶片且未启用 LUT 时 gradePass 是恒等变换，直接不入链。静帧改参数后实际只跑 6 个 pass（原固定 11 个），运动/慢门下自动回到 9–10 个。所有阈值与 GLSL 内同名早退判断严格对齐，避免 CPU/GPU 判定不一致。
+
+### 2. 链尾直落 finalRT
+ping-pong 缓冲区按 `[pp.a, pp.b]` 交替，最后一个 pass 直接写入 `finalRT`，省掉原先「pp → finalRT」的一次全屏拷贝。
+
+### 3. 异步测光回读（消除 GPU stall）
+`measure()` 原每 4 帧做两次同步 `readRenderTargetPixels`（64×40 测光 + 160×100 直方图），会强制等待 GPU 完成整条管线。现改用 three r169 的 `readRenderTargetPixelsAsync`（PBO + fenceSync），并用 `measuring` 标志防止重入；失败时自动回退同步读取并打印警告。
+
+> ⚠️ 已知陷阱（已在 `ensureSyncReadSafe()` 中处理）：three 的异步回读在整个 await 期间**不解绑** `PIXEL_PACK_BUFFER`，此时任何同步 `readPixels` 都会被 WebGL 判为 `INVALID_OPERATION` 并静默返回全 0（表现为拍摄出全黑图）。因此 `readDisplay()` / `readRawEncoded()` 在同步回读前都先解绑 PBO 并清空错误队列。
+
+### 4. 自适应画质
+`decideQuality()` 按 0.5 秒统计窗口做滞回判定：连续 2 秒低于 40 FPS 降一档（high → medium → low），高于 50 FPS 清零计数，不可低于 low；手动 `setQuality()` 会关闭自动降级。降档时重建渲染目标（high: dpr≤2 / medium: dpr≤1.5×0.85 / low: 0.7）。
+
+### 5. 每帧分配削减
+- `preserveDrawingBuffer: false`（照片一律从 finalRT 回读，从不读默认帧缓冲）
+- `makeLinearPhoto` 直接写 `ImageData`，去掉逐像素 `[0,1,2].map` 临时数组
+- `TestScene` 复用临时 `Vector3` / `Raycaster`，去掉每帧 3 次 `new` 与 `clone()`
+- `filmGrade` 结果按 `filmSim` 缓存，不再每帧复制矩阵
+- `Histogram` 用 `useMemo` 缓存折线点串，`Math.max` 展开改为循环
+- 测光的 ACES + sRGB 公式抽到 `src/camera/tonemap.ts` 纯函数，与 GLSL 同源、可单测
+
+### 6. 构建产物分块
+`vite.config.ts` 用 `manualChunks` 把 `three`（470KB）与 `react/react-dom`（141KB）拆成独立 chunk。这两块几乎不随业务代码变化，可以长期被浏览器与 CDN 缓存，业务改动时用户只需重新下载 88KB 的主 chunk。
+
+### 7. 订阅粒度
+取景器叠加层不再订阅整个 `scene` 对象，只订阅实际用到的 `scene.cameraRoll`；`__stopUtils` 从模块顶层副作用移入 `useEffect`。
+
+## 本轮审查修复的缺陷
+
+除性能优化外，这轮逐文件审查还定位并修复了五个真实缺陷（都属于"看得见的错"，不是代码风格问题）：
+
+| # | 缺陷 | 现象 | 根因 | 修复 |
+|---|---|---|---|---|
+| 1 | 取景器画面只占左下角一块 | 画布其余区域为黑，构图与比例全错 | `resize()` 只改了 `canvas.width/height`，从未调用 `renderer.setSize()`，three 的视口一直停在默认的 300×150 | `resize()` 内改为 `renderer.setSize(w, h, false)` + `renderer.setViewport(0, 0, w, h)`（传 `false` 避免写 CSS 尺寸，仍不触发 ResizeObserver 正反馈） |
+| 2 | HUD 整层被画布盖住 | 构图线、对焦框、快门键、HUD 文字全部消失或不可点 | 引擎用 `appendChild` 挂载 canvas，DOM 顺序在 `.vf-overlay` 之后；两者都是绝对定位且同层，后者被压在下面 | `.gl-canvas { z-index: 0 }`、`.vf-overlay { z-index: 2 }`，并在 CSS 里注释了这个 DOM 顺序陷阱 |
+| 3 | 曝光刻度偏差恒为 +11 EV，测光建议快门离谱（2.2s） | 「实际 EV 12.97 / 测光 EV 1.80 / 偏差 +11.16 EV」；建议快门与实际曝光完全对不上 | 渲染曝光增益里含标定常数 `CALIBRATION_K = 1000`，而 `meterScene()` 用未标定的场景亮度算 EV，两者相差 `log2(1000) ≈ 9.97` 档 | `meterScene()` 增加 `calibrationGain` 参数，引擎传入同一个 `EXPOSURE_CALIBRATION`（已从 `physics.ts` 导出，两处共用常量，不会再各写一份） |
+
+| 4 | 噪声随 ISO 近线性增长，而不是随 √ISO | ISO6400 以上画面被噪声淹没：同一显示亮度下相对噪声 ISO100 2.9% → 1600 45.1% → 6400 84.7% → 25600 101.1% | `FRAG_NOISE` 把 `√lum·k1` 与 `k2·√isoGain` 相加后又整体乘 `(0.5+0.5·√isoGain)`，等于给噪声再叠一次近 ISO 的增益 | 噪声模型抽成纯函数 `src/camera/noise.ts`（散粒 `√(c·g)`、读出 `∝g`，系数由 TS 算好后传 uniform），着色器只保留 √信号形状；修复后实测 1.0% / 1.8% / 6.1% / 14.3%，符合 √ISO 走势，另配 14 项单测锁定 |
+| 5 | 手持安全判定方向反了 | 200mm 1/1000s 被提示「建议使用三脚架」，1/2s 反而说「手持安全」——结论与实际经验完全相反 | `isHandheldSafe` 写成了 `shutter >= safe/2^N`，把「快门时间数字更大（更慢）反而更安全」当成了判据；正确判据是 `t ≤ 2^N/(f·crop)` | 新增 `handheldSafeShutterLimit()` 统一给出可手持的最慢快门，`isHandheldSafe` 改为 `shutter <= limit`；控制面板「安全快门」也改用同一函数（会随传感器裁切与防抖联动，不再只按裸焦距算） |
+
+另外顺手修正：`resize()` 的缓冲区此前在低画质档按 `floor(cssW*scale) × floor(cssH*scale)` 独立取整，极端尺寸下会与容器宽高比产生亚像素偏差（拍摄照片比例与取景器不一致）；现在统一用同一个 `limit` 系数等比缩放，实测画布 1134×701 与 CSS 1132×699 比例一致（1.618 / 1.619），RAW 照片 1.666 与取景器 1.667 一致。
 
 ## 验收结果
 
@@ -156,7 +212,14 @@ pnpm test:coverage
 | 12. RAW 线性数据 | ✅ RAW 格式照片含线性 readback，EXIF 标注「线性数据」 |
 | 13. 传感器/镜头联动 | ✅ M4/3 + 长焦镜头，焦距钳制到 70mm，裁切系数生效 |
 | 14. 胶片模拟/LUT | ✅ MONO 模拟 + Neutral LUT 切换，画面正常渲染 |
-| 15. 无严重控制台错误 | ✅ 自测 49/49、单测 70/70，零报错 |
+| 15. 无严重控制台错误 | ✅ 自测 77/77、单测 112/112，零报错 |
 | 16. 页面稳定不卡死 | ✅ 取景器尺寸稳定，无 WebGL context loss |
+| 17. pass 按需跳过 | ✅ 运动停止后 `plan={motion:false,mask:false}`，仅跑必要 pass |
+| 18. 异步测光正确性 | ✅ f/16 过曝 0.0%、f/1.4 过曝 9.7%，直方图随参数实时更新 |
+| 19. 拍摄不受异步回读影响 | ✅ 连续 5 张 meanLuma 121.3–122.5，非黑率 99.9–100%，2094 色 |
+| 20. 自适应画质 | ✅ 软件渲染低帧率下自动 high→medium→low，日志可见、画面不中断 |
+| 21. 手持安全判定 | ✅ 70mm 1/2s 判「建议使用三脚架」，1/1000s 判「手持安全」；1/2s + IS 仍判三脚架（免抖界限 16/70 ≈ 0.23s），符合 `t ≤ 2^N/(f·crop)` 判定 |
+| 22. 拍摄保留运动模糊 | ✅ 慢快门 1/15 + 运动物体连拍，照片 meanLuma 198.9、2350 色、非黑率 100% |
+| 23. 构建分块 | ✅ three 470KB / react 140KB / 业务 88KB 三块独立产出，生产预览自测 77/77 |
 
-单元测试：`pnpm test` → 70 passed（physics 21 + advanced 8 + optics 7 + film 7 + metering 8 + format 3 + store 16）。覆盖率：`pnpm test:coverage` → 语句 98.29% / 分支 86% / 函数 96.42% / 行 98.29%（阈值 85/75/85/85，全部达标；UI/WebGL/入口依赖浏览器端到端验证，不计入单测覆盖率）。浏览器自测：控制台 `[相机自测] 49/49 通过`（P0 14 项 + P1/P2 35 项）。
+单元测试：`pnpm test` → 112 passed（physics 21 + advanced 9 + optics 7 + film 7 + metering 9 + format 3 + store 16 + tonemap 12 + pipelinePlan 14 + noise 14）。覆盖率：`pnpm test:coverage` → 语句 98.56% / 分支 87.95% / 函数 97.03% / 行 98.56%（阈值 85/75/85/85，全部达标；UI/WebGL/入口依赖浏览器端到端验证，不计入单测覆盖率）。浏览器自测：控制台 `[相机自测] 77/77 通过`（P0 14 项 + P1/P2 35 项 + 渲染 9 项 + 管线 11 项 + 噪声 8 项）。

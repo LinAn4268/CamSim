@@ -55,6 +55,10 @@ function regionLuminance(grid: LuminanceRegion, mode: MeteringMode, point?: { x:
  * 根据测光亮度计算场景 EV：
  *   18% 灰映射：L = 2^EV · MID_GREY  →  EV = log2(L / MID_GREY)
  * L 为未施加曝光增益的“场景亮度”（渲染管线提供）。
+ *
+ * calibrationGain：把场景亮度换算到相机灵敏度标定尺度上的系数。
+ * 渲染管线的曝光增益里含一个标定常数（CameraEngine 的 CALIBRATION_K），
+ * 若测光不带上同一个常数，推算出的建议快门会与画面对不上（差约 10 档）。
  */
 export function meterScene(
   grid: LuminanceRegion,
@@ -62,8 +66,10 @@ export function meterScene(
   aperture: number,
   iso: number,
   focusPoint?: { x: number; y: number },
+  calibrationGain = 1,
 ): MeteringResult {
-  const luminance = Math.max(1e-6, regionLuminance(grid, mode, focusPoint));
+  const raw = Math.max(1e-6, regionLuminance(grid, mode, focusPoint));
+  const luminance = raw * (calibrationGain > 0 ? calibrationGain : 1);
   const sceneEV = Math.log2(luminance / MID_GREY);
   const suggestedShutter = shutterForEV(sceneEV, aperture, iso);
   return { ev: sceneEV, suggestedShutter, luminance };

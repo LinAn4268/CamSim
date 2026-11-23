@@ -13,5 +13,17 @@ export default defineConfig({
     // Windows 上编辑器原子保存会触发原生文件监视器 EBUSY，改用轮询避免开发服务器崩溃
     watch: { usePolling: true, interval: 300 },
   },
-  build: { target: 'es2020' },
+  build: {
+    target: 'es2020',
+    // three.js 占了绝大部分体积，单独拆出来：它几乎不变，可以长期被浏览器/CI 缓存，
+    // 业务代码改动时用户只需重新下载很小的那一块。
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          three: ['three'],
+          react: ['react', 'react-dom'],
+        },
+      },
+    },
+  },
 });

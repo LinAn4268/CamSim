@@ -10,6 +10,13 @@ import { useCameraStore, quantizeStop } from '../store/useCameraStore';
 import { SHUTTER_STOPS, APERTURE_STOPS, ISO_STOPS } from '../camera/physics';
 
 export function App() {
+  // 暴露档位工具供控制台调试：放在副作用里，避免模块导入时执行（SSR / 测试环境下 window 可能不存在）
+  useEffect(() => {
+    (window as unknown as { __stopUtils: unknown }).__stopUtils = {
+      SHUTTER_STOPS, APERTURE_STOPS, ISO_STOPS, quantizeStop,
+    };
+  }, []);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.target as HTMLElement)?.tagName === 'INPUT') return;
@@ -81,12 +88,9 @@ export function App() {
       </main>
       <footer className="app-footer">
         <span>拖动旋转 · 滚轮推拉 · 单击对焦 · 空格拍摄 · ↑↓曝光补偿 · ←→光圈 · F对焦 · P峰值 · D景深 · Z斑马纹 · G辅助线 · H水平仪 · B包围</span>
-        <span>使用控制台 <code>__cameraSelfTest()</code> 验证物理公式 · <code>__cameraEngine.setQuality('low')</code> 降级</span>
+        <span>使用控制台 <code>__cameraSelfTest()</code> 验证物理公式 · <code>__cameraEngine.setQuality('low')</code> 手动降级 · 帧率长期偏低时会自动降级</span>
       </footer>
       <Playback />
     </div>
   );
 }
-
-// 暴露档位工具供调试
-(window as unknown as { __stopUtils: unknown }).__stopUtils = { SHUTTER_STOPS, APERTURE_STOPS, ISO_STOPS, quantizeStop };

@@ -25,6 +25,8 @@
 src/
   types/camera.ts          参数与照片类型
   camera/physics.ts        关键物理公式（纯函数）
+  camera/noise.ts          传感器噪声模型（散粒/读出，被引擎与单测共用）
+  camera/tonemap.ts        CPU 参考色调映射（RAW/HDR 预览与单测）
   camera/advanced.ts       P1：ND/闪光/防抖/果冻/包围/HDR/斑马纹
   camera/optics.ts         P2：传感器/镜头/裁切/预设序列化
   camera/film.ts           P1：胶片模拟矩阵/.cube LUT 解析与采样
@@ -35,6 +37,7 @@ src/
   store/useCameraStore.ts  集中状态
   scene/TestScene.ts       3D 测试场景 + 光照 + 运动物体 + 深度/掩码
   renderer/CameraEngine.ts 渲染主循环 + 后期链编排 + 测光/直方图 + 拍摄
+  renderer/pipelinePlan.ts 每帧 pass 早退判定 + 自适应画质决策（纯函数）
   renderer/post/Pass.ts    ShaderPass + PingPong RT
   renderer/shaders/chains.ts 各后期 GLSL
   ui/                      ControlPanel/Viewfinder/Histogram/ExposureScale/Playback
@@ -64,7 +67,7 @@ scripts/                  验收辅助脚本（开发用）
 - **景深**：`near = s(H−f)/(H+s−2f)`，`far = s(H−f)/(H−s)`（s>f）
 - **弥散圆**：`CoC = |A·(s−s₀)|/(s·(s₀−F))`，A=f²/N，用于后期景深模糊半径
 - **运动模糊**：`blur ≈ shutter × screenVelocity × scale`，沿运动方向 12-tap 卷积，掩码限定运动物体
-- **噪点**：散粒噪声 `∝√signal`，读出噪声 `∝√ISO`，亮度/彩色噪声分离，随 ISO 增强
+- **噪点**：散粒噪声 `σ = √(c·g)·k_shot`（c 为显示亮度、g = ISO/100），读出噪声 `σ = k_read·g`；相对噪声 `σ/c ∝ √ISO`，亮度/彩色噪声分离，随 ISO 增强；系数集中在 `camera/noise.ts`
 - **白平衡**：色温表插值得到光源 RGB，再取倒数并归一化 G=1 作为相机增益；tint 正负调绿/品红
 - **高光/色调映射**：ACES (Narkowicz) + 自定义肩部滚降，避免硬 clamp
 - **衍射**：艾里斑直径 `2.44·λ·N`（λ≈0.55μm），按传感器裁切折算，小光圈下混入模糊

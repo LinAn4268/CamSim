@@ -26,6 +26,12 @@ export class TestScene {
   private time = 0;
   private prevWorld = new THREE.Vector3();
   private currWorld = new THREE.Vector3();
+  // 复用临时对象，避免每帧在渲染循环里产生垃圾（运动速度可达 60 次/秒）
+  private tmpDelta = new THREE.Vector3();
+  private tmpNdcCurr = new THREE.Vector3();
+  private tmpNdcPrev = new THREE.Vector3();
+  private focusRay = new THREE.Raycaster();
+  private focusNdc = new THREE.Vector2();
 
   constructor(aspect: number) {
     this.scene.background = new THREE.Color(0x20242b);
@@ -42,7 +48,6 @@ export class TestScene {
     const roomMat = new THREE.MeshStandardMaterial({ color: 0x8a8f98, roughness: 0.95, metalness: 0 });
     const floor = new THREE.Mesh(new THREE.PlaneGeometry(40, 40), roomMat);
     floor.rotation.x = -Math.PI / 2;
-    floor.receiveShadow = true;
     this.scene.add(floor);
 
     const backWall = new THREE.Mesh(new THREE.PlaneGeometry(40, 14), new THREE.MeshStandardMaterial({ color: 0x6f7681, roughness: 1 }));
@@ -154,14 +159,14 @@ export class TestScene {
 
   /** 运动物体在屏幕上的速度（UV/秒），由真实世界位移投影得到。运动模糊长度 = 速度 × 快门时间。 */
   getScreenVelocity(dt: number): ScreenVelocity {
-    const delta = new THREE.Vector3().subVectors(this.currWorld, this.prevWorld);
     if (!this.sceneSettings.motionEnabled || dt <= 0) return { x: 0, y: 0, active: false };
-    const currNdc = this.currWorld.clone().project(this.camera);
-    const prevNdc = this.prevWorld.clone().project(this.camera);
+    this.tmpDelta.subVectors(this.currWorld, this.prevWorld);
+    this.tmpNdcCurr.copy(this.currWorld).project(this.camera);
+    this.tmpNdcPrev.copy(this.prevWorld).project(this.camera);
     // NDC→UV 缩放 0.5；除 dt 得 UV/秒
-    const vx = (currNdc.x - prevNdc.x) * 0.5 / dt;
-    const vy = (currNdc.y - prevNdc.y) * 0.5 / dt;
-    return { x: vx, y: vy, active: delta.lengthSq() > 1e-10 };
+    const vx = (this.tmpNdcCurr.x - this.tmpNdcPrev.x) * 0.5 / dt;
+    const vy = (this.tmpNdcCurr.y - this.tmpNdcPrev.y) * 0.5 / dt;
+    return { x: vx, y: vy, active: this.tmpDelta.lengthSq() > 1e-10 };
   }
 
   private sceneSettings: SceneSettings = {
@@ -176,9 +181,9 @@ export class TestScene {
 
   /** 自动对焦：用 Raycaster 从焦点点击位置读取实际距离（米） */
   autoFocusAt(nx: number, ny: number): number {
-    const ray = new THREE.Raycaster();
-    ray.setFromCamera(new THREE.Vector2(nx * 2 - 1, -(ny * 2 - 1)), this.camera);
-    const hits = ray.intersectObjects(this.scene.children, true);
+    this.focusNdc.set(nx * 2 - 1, -(ny * 2 - 1));
+    this.focusRay.setFromCamera(this.focusNdc, this.camera);
+    const hits = this.focusRay.intersectObjects(this.scene.children, true);
     for (const hit of hits) {
       if ((hit.object as THREE.Mesh).isMesh && hit.object !== this.highlightPanel) {
         return hit.distance;

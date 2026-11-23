@@ -64,12 +64,22 @@ export function effectiveHandheldShutter(
 }
 
 /**
- * 手持是否安全：shutter ≥ 安全快门 / 2^N，
- * 安全快门 = 1/(focal·crop)，N 为防抖补偿档数。
+ * 手持是否安全：快门时间必须短于（数字更大即更快）安全快门界限，
+ * 即 t ≤ 2^N / (focal·crop)，N 为防抖补偿档数。
+ * 注意方向：焦距越长、界限越短；慢门（t 大）不安全，快门快（t 小）才安全。
  */
 export function isHandheldSafe(shutter: number, focalLength: number, crop: number, stabilization: boolean): boolean {
-  const safe = 1 / (focalLength * crop);
-  return shutter >= safe / Math.pow(2, stabilizerStops(stabilization));
+  const limit = handheldSafeShutterLimit(focalLength, crop, stabilization);
+  return shutter <= limit;
+}
+
+/**
+ * 手持安全快门界限（秒，越大越慢）：2^N / (focal·crop)。
+ * 返回"允许的最慢手持快门时间"，例如 50mm 无防抖 = 1/50s，开启 4 档防抖 = 1/3.125s。
+ */
+export function handheldSafeShutterLimit(focalLength: number, crop: number, stabilization: boolean): number {
+  const base = 1 / (Math.max(focalLength, 0.1) * (crop > 0 ? crop : 1));
+  return base * Math.pow(2, stabilizerStops(stabilization));
 }
 
 /**
@@ -219,8 +229,9 @@ export function runAdvancedSelfTest(): AdvancedCheck[] {
   ok('驱动模式标签', formatDriveMode('single') === '单张' && formatDriveMode('burst') === '连拍'
     && formatDriveMode('timer') === '定时', '单张/连拍/定时');
   ok('等效手持快门', effectiveHandheldShutter(1 / 60, 50, 1, true) === (1 / 60) / 16, '1/60 → /16');
-  ok('手持安全判断', !isHandheldSafe(1 / 60, 50, 1, false) && isHandheldSafe(1 / 30, 50, 1, false)
-    && isHandheldSafe(1 / 60, 50, 1, true), '1/60@50mm unsafe; 1/30 safe; 1/60+IS safe');
+  ok('手持安全判断', isHandheldSafe(1 / 60, 50, 1, false) && !isHandheldSafe(1 / 30, 50, 1, false)
+    && isHandheldSafe(1 / 250, 200, 1, false) && !isHandheldSafe(1 / 2, 200, 1, false)
+    && isHandheldSafe(1 / 15, 200, 1, true), '50mm 1/60 安全·1/30 不安全; 200mm 1/250 安全·1/2 不安全; 200mm 1/15+IS 安全（界限 1/12.5s）');
 
   return checks;
 }

@@ -234,7 +234,7 @@ export const useCameraStore = create<CameraState>((set) => ({
 
   // ---- P2 ----
   setLens: (v) => set((st) => ({
-    settings: { ...st.settings, lens: v, focalLength: clampFocalToLens(clampFocalToLens(st.settings.focalLength, v), v) },
+    settings: { ...st.settings, lens: v, focalLength: clampFocalToLens(st.settings.focalLength, v) },
   })),
   setSensor: (v) => set((st) => ({
     settings: { ...st.settings, sensor: v, focalLength: clamp(st.settings.focalLength, 1, 1000) },
