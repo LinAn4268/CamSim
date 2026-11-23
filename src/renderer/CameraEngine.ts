@@ -151,6 +151,13 @@ export class CameraEngine {
   private theta = 0;
   private phi = Math.PI / 2 - 0.03;
   private radius = 9.6;
+  /** 初始（默认）机位与视角：构造时记录，供「恢复默认镜头位置」使用。 */
+  private readonly defaultOrbit = {
+    target: new THREE.Vector3(0, 1.35, -4),
+    theta: 0,
+    phi: Math.PI / 2 - 0.03,
+    radius: 9.6,
+  };
   private dragging = false;
   private moved = false;
   private startX = 0;
@@ -189,6 +196,11 @@ export class CameraEngine {
     this.radius = off.length();
     this.theta = Math.atan2(off.x, off.z);
     this.phi = Math.acos(clamp(off.y / this.radius, -1, 1));
+    // 以场景默认机位作为「默认镜头位置与视角」的基准
+    this.defaultOrbit.target.copy(this.orbitTarget);
+    this.defaultOrbit.theta = this.theta;
+    this.defaultOrbit.phi = this.phi;
+    this.defaultOrbit.radius = this.radius;
 
     this.lastTime = performance.now();
     this.loop = this.loop.bind(this);
@@ -269,6 +281,30 @@ export class CameraEngine {
     this.lowStreak = 0;
   }
 
+  /** 恢复默认镜头位置与视角（轨道机位回到构造时的初值）。 */
+  resetView(): void {
+    this.orbitTarget.copy(this.defaultOrbit.target);
+    this.theta = this.defaultOrbit.theta;
+    this.phi = this.defaultOrbit.phi;
+    this.radius = this.defaultOrbit.radius;
+    this.applyOrbit();
+    this.syncViewMoved();
+  }
+
+  /** 当前机位是否仍在默认视角（用于按钮可用态/提示）。 */
+  isDefaultView(): boolean {
+    const eps = 1e-3;
+    return Math.abs(this.theta - this.defaultOrbit.theta) < eps
+      && Math.abs(this.phi - this.defaultOrbit.phi) < eps
+      && Math.abs(this.radius - this.defaultOrbit.radius) < eps
+      && this.orbitTarget.distanceToSquared(this.defaultOrbit.target) < eps * eps;
+  }
+
+  /** 当前机位摘要：给取景器 HUD 显示「镜头已移动」。 */
+  getViewState(): { theta: number; phi: number; radius: number; isDefault: boolean } {
+    return { theta: this.theta, phi: this.phi, radius: this.radius, isDefault: this.isDefaultView() };
+  }
+
   resize(): void {
     const parent = this.canvas.parentElement;
     const rect = parent?.getBoundingClientRect();
@@ -346,6 +382,7 @@ export class CameraEngine {
         this.theta -= dx * 0.005;
         this.phi = clamp(this.phi - dy * 0.005, 0.15, Math.PI - 0.15);
         this.startX = e.clientX; this.startY = e.clientY;
+        this.syncViewMoved();
       }
     });
     c.addEventListener('pointerup', (e) => {
@@ -365,7 +402,15 @@ export class CameraEngine {
     c.addEventListener('wheel', (e) => {
       e.preventDefault();
       this.radius = clamp(this.radius * (1 + Math.sign(e.deltaY) * 0.08), 1.2, 40);
+      this.syncViewMoved();
     }, { passive: false });
+  }
+
+  /** 把「机位是否已偏离默认」写回 store；值没变时 store 不会触发多余渲染。 */
+  private syncViewMoved(): void {
+    const moved = !this.isDefaultView();
+    const st = useCameraStore.getState();
+    if (st.viewMoved !== moved) st.setViewMoved(moved);
   }
 
   /** 把球面轨道坐标应用到相机 */

@@ -1,16 +1,20 @@
-// src/ui/App.tsx — 应用主布局与键盘快捷键（相机机身造型：机顶转盘 + 取景器 + 菜单面板）
+// src/ui/App.tsx — 应用主布局与键盘快捷键（Sony α 系列机顶造型 + 移动端抽屉菜单）
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Viewfinder } from './Viewfinder';
 import { ControlPanel } from './ControlPanel';
 import { Histogram } from './Histogram';
 import { ExposureScale } from './ExposureScale';
 import { Playback } from './Playback';
 import { ModeDial, stepStop } from './ModeDial';
+import { getEngine } from '../renderer/engineHandle';
 import { useCameraStore, quantizeStop } from '../store/useCameraStore';
 import { SHUTTER_STOPS, APERTURE_STOPS, ISO_STOPS } from '../camera/physics';
 
 export function App() {
+  // 移动端：菜单面板改为底部抽屉，由机顶按钮控制展开
+  const [drawerOpen, setDrawerOpen] = useState(false);
+
   // 暴露档位工具供控制台调试：放在副作用里，避免模块导入时执行（SSR / 测试环境下 window 可能不存在）
   useEffect(() => {
     (window as unknown as { __stopUtils: unknown }).__stopUtils = {
@@ -59,9 +63,16 @@ export function App() {
           // F：对焦到画面中心
           st.setFocusPoint(0.5, 0.5);
           if (s.focusMode === 'auto') {
-            const eng = (window as unknown as { __cameraEngine?: { autoFocusCenter?: () => number } }).__cameraEngine;
-            if (eng?.autoFocusCenter) st.setFocusDistance(eng.autoFocusCenter());
+            const d = getEngine()?.autoFocusCenter();
+            if (typeof d === 'number') st.setFocusDistance(d);
           }
+          break;
+        }
+        case 'r': case 'R': {
+          // R：恢复默认镜头位置与视角
+          const eng = getEngine();
+          if (eng) eng.resetView();
+          else st.requestResetView();
           break;
         }
         case 'm': case 'M':
@@ -83,39 +94,49 @@ export function App() {
 
   return (
     <div className="app-layout">
-      {/* 机顶：型号铭牌 + 模式转盘（真机顶部那一排） */}
+      {/* 机顶：Sony 造型——左铭牌，中参数转盘，右功能键 */}
       <div className="camera-top">
         <div className="top-plate">
-          <span className="top-brand">CamSim</span>
-          <span className="top-model">X1</span>
-          <span className="top-sub">REAL CAMERA SIMULATOR · WEBGL2</span>
+          <span className="top-brand">α</span>
+          <span className="top-model">CamSim 7</span>
+          <span className="top-sub">FULL-FRAME SIMULATOR</span>
         </div>
         <ModeDial />
         <div className="top-actions">
-          <button onClick={() => useCameraStore.getState().resetCamera()} title="重置全部相机参数">↺ 重置</button>
-          <button onClick={() => useCameraStore.getState().resetScene()} title="恢复默认布光与场景">◐ 场景</button>
-          <button onClick={() => useCameraStore.getState().setShowPlayback(true)} title="打开回放">▣ 回放</button>
+          <button
+            className={`top-menu-btn ${drawerOpen ? 'active' : ''}`}
+            onClick={() => setDrawerOpen((v) => !v)}
+            title="菜单（移动端抽屉）">☰ <span className="btn-text">菜单</span>
+          </button>
+          <button onClick={() => { useCameraStore.getState().resetCamera(); }} title="重置全部相机参数">↺ <span className="btn-text">重置</span></button>
+          <button onClick={() => useCameraStore.getState().setShowPlayback(true)} title="打开回放">▣ <span className="btn-text">回放</span></button>
         </div>
       </div>
 
-      {/* 机身主体：左=卡口/取景器，右=机背菜单面板 */}
+      {/* 机身主体：左=取景器，右=菜单面板（手机端变抽屉） */}
       <div className="camera-shell">
         <main className="app-main">
           <section className="left-col">
             <Viewfinder />
-            {/* 机底信息条：曝光刻度 + 直方图，等价于真机肩屏 / 机背信息栏 */}
             <div className="under-vf">
               <ExposureScale />
               <Histogram />
             </div>
           </section>
-          <aside className="right-col"><ControlPanel /></aside>
+          <aside className={`right-col ${drawerOpen ? 'drawer-open' : ''}`}>
+            <div className="drawer-head">
+              <span>拍摄菜单</span>
+              <button onClick={() => setDrawerOpen(false)} title="收起菜单">✕</button>
+            </div>
+            <ControlPanel />
+          </aside>
+          {drawerOpen && <div className="drawer-backdrop" onClick={() => setDrawerOpen(false)} />}
         </main>
       </div>
 
       <footer className="app-footer">
-        <span>拖动旋转 · 滚轮推拉 · 单击对焦 · 空格拍摄 · ↑↓曝光补偿 · ←→光圈 · [ ]快门 · , . ISO · M对焦模式 · F对焦 · P峰值 · D景深 · Z斑马纹 · G辅助线 · H水平仪 · B包围</span>
-        <span>控制台 <code>__cameraSelfTest()</code> 验证物理公式 · <code>__cameraEngine.setQuality('low')</code> 手动降级 · 帧率长期偏低时会自动降级</span>
+        <span>拖动旋转 · 滚轮推拉 · 单击对焦 · 空格拍摄 · R复位视角 · ↑↓曝光补偿 · ←→光圈 · [ ]快门 · , . ISO · M对焦模式 · F对焦 · P峰值 · D景深 · Z斑马纹 · G辅助线 · H水平仪 · B包围</span>
+        <span className="footer-dev">控制台 <code>__cameraSelfTest()</code> 验证物理公式 · <code>__cameraEngine.setQuality('low')</code> 手动降级</span>
       </footer>
       <Playback />
     </div>

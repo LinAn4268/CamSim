@@ -42,7 +42,8 @@ src/
   renderer/shaders/chains.ts 各后期 GLSL
   ui/Dial.tsx              真机式圆形转盘（档位吸附、拖拽/滚轮）
   ui/ModeDial.tsx          机顶模式键 + 四个参数转盘 + stepStop 档位工具
-  ui/                      ControlPanel/Viewfinder/Histogram/ExposureScale/Playback
+  renderer/engineHandle.ts 引擎句柄单例（UI 不依赖 window 全局即可调用引擎）
+  ui/                      ControlPanel(Sony 六标签菜单)/Viewfinder(Sony HUD)/Histogram/ExposureScale/Playback
   utils/format.ts          显示格式化
   main.tsx / App.tsx / styles.css
 docs/PLAN.md              本文件
@@ -56,7 +57,11 @@ scripts/                  验收辅助脚本（开发用）
 
 墙面共两处「窗外天空」自发光平面：左墙侧窗（HDR 2.6–2.9，主要承担侧光来源与逆光轮廓）与背墙书墙左侧小窗（HDR 3.4–3.8，保证 50mm 默认视角画面里也能看到高光溢出）。两者都登记在 `skyPanels` 数组中，`autoFocusAt()` 会跳过它们——对焦到「远处的天空」没有物理意义。
 
-**界面**：按真机布局组织——机顶放品牌铭牌、FOCUS/DRIVE/SHUTTER 模式键与四个金属转盘；机身左右肩部放铭牌、竖排型号与拍摄/闪光/包围三枚状态灯；取景器 HUD 覆盖驱动模式、快门类型、白平衡、FPS、三分布线、AF 框、电子水平仪、斑马纹与 ±EV 刻度；底部是大字号快门/光圈/ISO 读数、测光建议与金属快门环按钮；右栏保留 11 组专业参数面板；下方为曝光刻度盘与直方图。
+**界面**：参考 Sony α（A7 系列）真机布局与信息层级——机顶放 `α CamSim 7` 铭牌、FOCUS/DRIVE/SHUTTER 模式键与四个金属转盘；机身左右肩部放铭牌、竖排型号与拍摄/闪光/包围三枚状态灯；取景器 HUD 按 Sony 组织为「左上状态芯片组（AF-C/MF、测光、驱动、AWB、快门类型）+ 右上格式与 FPS + 左下三行大字号读数 + 右下 ±3EV 刻度与焦段」；机背改为六标签行式菜单（曝光/对焦/色彩/驱动/镜头/设置，右侧橙色当前值）；下方为曝光刻度盘与直方图。
+
+机位复位设计为「一个状态、三条入口」：`CameraEngine` 保存构造时的默认球坐标（`defaultOrbit`），`isDefaultView()` 以 `1e-3` 容差比较，`syncViewMoved()` 在拖动/滚轮后把布尔状态写进 store；`R` 键、取景器 `↺ 视角已移动 · 复位` 提示、菜单「镜头 → 机身视角」都调用同一 `resetView()`，避免出现「按钮各自记一套默认值」的分叉。UI 通过 `renderer/engineHandle.ts` 的单例拿到引擎，不再依赖 `window.__cameraEngine`。
+
+**移动端**：断点 1180/1024/900/640/380；≤900px 机背菜单变右侧抽屉（`visibility` 参与过渡，关闭后不拦截点击）；≤640px 机顶压成「一行模式键 + 一行转盘」、肩部隐藏、取景器占满剩余高度、EV 与直方图横向并排；补 `viewport-fit=cover`、安全区与触控命中尺寸。关键陷阱：抽屉用 `translateX(100%)` 移出屏幕时，若 `html/body` 不设 `overflow:hidden`，移动浏览器会把这块可滚宽内容算进布局宽度，把整页缩放到约 2 倍宽（实测 390px 视口被撑到 788px）。
 
 转盘交互有一个易错点：`onPointerMove` 必须用「按下瞬间的档位 + 累计位移」计算目标档，而不是拿渲染期的 `index` 每帧累加偏移——后者会让一次 40px 拖动连跳五档以上（每 16px 一档，但每个 move 事件都从同一基准再加偏移）。滚轮方向也要与拖动一致（向上滚 = 加档）。
 

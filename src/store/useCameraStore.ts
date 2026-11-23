@@ -86,6 +86,13 @@ export interface CameraState {
   setSensor: (v: SensorId) => void;
   setFileFormat: (v: FileFormat) => void;
   loadPreset: (settings: Partial<CameraSettings>) => void;
+
+  // 视图（机位）状态：由渲染引擎回写，UI 只读
+  viewMoved: boolean;
+  setViewMoved: (v: boolean) => void;
+  /** 请求把机位恢复默认：UI 递增该计数，取景器监听到变化后调用引擎 resetView。 */
+  viewResetToken: number;
+  requestResetView: () => void;
 }
 
 const defaultSettings: CameraSettings = {
@@ -176,6 +183,8 @@ export const useCameraStore = create<CameraState>((set) => ({
   lastBracket: [],
   hdrResultId: null,
   customLuts: {},
+  viewMoved: false,
+  viewResetToken: 0,
 
   // ---- P0 ----
   setShutter: (v) => set((st) => ({ settings: { ...st.settings, shutter: clamp(v, 1 / 8000, 30) } })),
@@ -247,6 +256,10 @@ export const useCameraStore = create<CameraState>((set) => ({
       focalLength: clampFocalToLens(patch.focalLength ?? st.settings.focalLength, patch.lens ?? st.settings.lens),
     },
   })),
+
+  // ---- 视图（机位）----
+  setViewMoved: (v) => set({ viewMoved: v }),
+  requestResetView: () => set((st) => ({ viewResetToken: st.viewResetToken + 1 })),
 }));
 
 export { defaultSettings, defaultScene, SHUTTER_STOPS, APERTURE_STOPS, ISO_STOPS, bracketEVs, SENSOR_PROFILES, LENS_PROFILES };

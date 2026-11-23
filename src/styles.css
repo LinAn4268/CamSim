@@ -1,216 +1,229 @@
-/* src/styles.css — 专业相机控制面板风格（深色 / 琥珀色强调） */
+/* src/styles.css — Sony α 系列风格相机界面（深灰机身 + 橙色强调 + 白色读数）
+   结构：机顶参数条 / 机身（取景器 + 机背菜单）/ 移动端抽屉
+   移动端策略：≤1024 侧栏收窄；≤900 侧栏变底部抽屉；≤640 纯竖屏取景优先 */
+
 :root {
-  --bg: #0d0f12;
-  --panel: #171a1f;
-  --panel-2: #1e2229;
-  --line: #2c313a;
-  --text: #d8dde3;
-  --dim: #8a929c;
-  --accent: #e8a13a;
-  --accent-dim: #7a5a24;
+  --bg: #08090b;
+  --panel: #16181c;
+  --panel-2: #1e2126;
+  --panel-3: #262a30;
+  --line: #2e333a;
+  --line-soft: #23272d;
+  --text: #e9edf2;
+  --dim: #8b939d;
+  --dim-2: #5f676f;
+  --accent: #f5a524;          /* Sony 橙 */
+  --accent-soft: #8a5c14;
+  --focus-green: #4ade80;     /* 合焦绿 */
   --good: #43d17a;
   --bad: #ff5c5c;
+  --radius: 6px;
 }
+
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; margin: 0; }
+/* html 也要裁切：抽屉用 translateX(102%) 移到屏幕外，若父级不裁剪，
+   移动浏览器会把「可滚宽内容」当成真实宽度并整体缩小页面（innerWidth 直接变成 ~2×设备宽），
+   表现为整页被缩小、字变小、右侧留白。 */
+html { -webkit-text-size-adjust: 100%; overflow: hidden; }
 body {
   background: var(--bg); color: var(--text);
-  font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  font-family: "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
   font-size: 13px; overflow: hidden;
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
 }
 button { cursor: pointer; font-family: inherit; }
-.app-layout { display: flex; flex-direction: column; height: 100vh; }
+button, .chip, .segmented button { touch-action: manipulation; }
+.app-layout {
+  display: flex; flex-direction: column; height: 100vh; height: 100dvh;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
 
-/* ---- 机顶（真机顶盖：铭牌 + 模式转盘 + 机身按键） ---- */
+/* ================= 机顶 ================= */
 .camera-top {
   flex: 0 0 auto; display: flex; align-items: stretch; gap: 14px;
-  padding: 8px 16px 10px;
-  background:
-    linear-gradient(180deg, #2a2e34 0%, #1b1f24 42%, #14171b 100%);
-  border-bottom: 1px solid #05070a;
-  box-shadow: 0 2px 10px rgba(0,0,0,.75), inset 0 1px 0 rgba(255,255,255,.07);
+  padding: 7px 14px 9px;
+  background: linear-gradient(180deg, #2b2f35 0%, #1b1e22 44%, #111316 100%);
+  border-bottom: 1px solid #04050700;
+  box-shadow: 0 2px 10px rgba(0,0,0,.8), inset 0 1px 0 rgba(255,255,255,.07);
+  z-index: 3;
 }
-.top-plate { display: flex; align-items: baseline; gap: 8px; flex: 0 0 auto; padding-right: 14px; border-right: 1px solid rgba(255,255,255,.07); }
-.top-brand { font-size: 17px; font-weight: 800; letter-spacing: .8px; color: #e9edf2; text-shadow: 0 1px 2px #000; }
+.top-plate {
+  display: flex; align-items: baseline; gap: 7px; flex: 0 0 auto;
+  padding-right: 13px; border-right: 1px solid rgba(255,255,255,.08);
+}
+.top-brand { font-size: 19px; font-weight: 600; color: #f2f5f8; letter-spacing: .5px; }
 .top-model {
-  font-size: 11px; font-weight: 700; color: var(--accent); border: 1px solid var(--accent-dim);
-  padding: 0 4px; border-radius: 2px; letter-spacing: 1px;
+  font-size: 11px; font-weight: 700; color: var(--accent);
+  border: 1px solid var(--accent-soft); padding: 1px 5px; border-radius: 2px; letter-spacing: .6px;
 }
-.top-sub { font-size: 9px; color: #6d757f; letter-spacing: 1.4px; white-space: nowrap; }
-.top-actions { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
+.top-sub { font-size: 9px; color: var(--dim-2); letter-spacing: 1.3px; white-space: nowrap; }
+.top-actions { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; margin-left: auto; }
 .top-actions button, .playback-head button {
   background: linear-gradient(180deg, #2c3138, #1d2126); color: #cfd6dd;
-  border: 1px solid #0a0c0f; border-radius: 4px; padding: 5px 10px; font-size: 11px;
+  border: 1px solid #07090b; border-radius: 4px; padding: 6px 10px; font-size: 11px;
   box-shadow: inset 0 1px 0 rgba(255,255,255,.08), 0 1px 2px rgba(0,0,0,.6);
+  white-space: nowrap;
 }
 .top-actions button:hover { border-color: var(--accent); color: var(--accent); }
+.top-actions button.active { border-color: var(--accent); color: var(--accent); background: #24282e; }
 
-/* ---- 机身外壳 ---- */
+/* ================= 机身外壳 ================= */
 .camera-shell {
   flex: 1; min-height: 0; display: flex;
-  background: #0b0d10;
-  border-top: 1px solid rgba(255,255,255,.04);
+  background: #0a0b0d; border-top: 1px solid rgba(255,255,255,.04);
 }
-.app-main { flex: 1; display: flex; gap: 12px; padding: 12px; min-height: 0; }
-.left-col { flex: 1; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.app-main { flex: 1; display: flex; gap: 10px; padding: 10px; min-height: 0; position: relative; }
+.left-col { flex: 1; display: flex; flex-direction: column; gap: 8px; min-width: 0; min-height: 0; }
 .right-col {
-  width: 330px; flex: 0 0 330px; overflow-y: auto;
-  background: linear-gradient(180deg, #1b1f24, #15181d);
-  border: 1px solid #05070a; border-radius: 6px;
+  width: 360px; flex: 0 0 360px; overflow: hidden; display: flex; flex-direction: column;
+  background: linear-gradient(180deg, #1a1d21, #14171a);
+  border: 1px solid #05070800; border-radius: var(--radius);
   box-shadow: inset 0 1px 0 rgba(255,255,255,.05), 0 2px 8px rgba(0,0,0,.6);
 }
+.drawer-head { display: none; }
 
-/* ---- 取景器 ---- */
+/* ================= 取景器 ================= */
 .viewfinder {
-  position: relative; flex: 1; min-height: 260px; background: #000;
-  border: 1px solid var(--line); border-radius: 6px; overflow: hidden;
+  position: relative; flex: 1; min-height: 240px; background: #000;
+  border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden;
 }
 /* canvas 绝对定位，脱离 flex 布局，避免其内在尺寸反向撑大父容器。
-   注意：引擎用 appendChild 挂载 canvas，它会排在 .vf-overlay 之后，
-   若不给层级就会把 HUD 整层盖住——因此显式压到 0 层。 */
+   引擎用 appendChild 挂载 canvas，会排在 .vf-overlay 之后，必须显式压到 0 层。 */
 .gl-canvas { position: absolute; inset: 0; z-index: 0; display: block; width: 100%; height: 100%; }
 .vf-overlay { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
+
+/* 顶部信息条：Sony 取景器上缘那一排小字 */
 .vf-topbar {
   position: absolute; top: 0; left: 0; right: 0; display: flex; align-items: center;
-  gap: 10px; padding: 8px 12px; font-size: 11px; letter-spacing: .8px;
-  background: linear-gradient(180deg, rgba(0,0,0,.55), transparent); color: #fff;
+  gap: 7px; padding: 7px 10px; font-size: 11px; letter-spacing: .4px;
+  background: linear-gradient(180deg, rgba(0,0,0,.6), transparent); color: #fff;
 }
-.rec-dot { width: 7px; height: 7px; border-radius: 50%; background: #ff4646; box-shadow: 0 0 6px #ff4646; }
+.sony-badge {
+  font-weight: 700; color: #0b0d10; background: var(--focus-green);
+  padding: 1px 5px; border-radius: 2px; font-size: 10px; letter-spacing: .6px;
+}
+.sony-chip {
+  color: rgba(255,255,255,.9); background: rgba(0,0,0,.32);
+  padding: 1px 5px; border-radius: 2px; font-variant-numeric: tabular-nums;
+}
+.sony-chip.dim { color: rgba(255,255,255,.62); }
+.sony-chip.ok { color: var(--focus-green); }
 .vf-spacer { flex: 1; }
-.focus-box { position: absolute; width: 84px; height: 84px; transform: translate(-50%,-50%); border: 1px solid rgba(232,161,58,.35); }
-.corner { position: absolute; width: 14px; height: 14px; border: 2px solid var(--accent); }
+.vf-mode { color: var(--accent); font-weight: 700; }
+.vf-sep { width: 1px; height: 10px; background: rgba(255,255,255,.25); }
+.vf-mono { font-variant-numeric: tabular-nums; color: rgba(255,255,255,.85); }
+.rec-dot { width: 7px; height: 7px; border-radius: 50%; background: #ff4646; box-shadow: 0 0 6px #ff4646; }
+
+/* 对焦框：Sony flexi-point，四角细线 */
+.focus-box {
+  position: absolute; width: 86px; height: 86px; transform: translate(-50%,-50%);
+  border: 1px solid rgba(74,222,128,.28);
+}
+.corner { position: absolute; width: 13px; height: 13px; border: 2px solid var(--focus-green); }
 .corner.tl { top: -1px; left: -1px; border-right: 0; border-bottom: 0; }
 .corner.tr { top: -1px; right: -1px; border-left: 0; border-bottom: 0; }
 .corner.bl { bottom: -1px; left: -1px; border-right: 0; border-top: 0; }
 .corner.br { bottom: -1px; right: -1px; border-left: 0; border-top: 0; }
-.focus-label { position: absolute; top: -18px; left: 0; color: var(--accent); font-size: 10px; font-weight: 700; }
-.grid-lines { position: absolute; inset: 0; opacity: .25; }
+.focus-label {
+  position: absolute; top: -17px; left: 0; color: var(--focus-green);
+  font-size: 9px; font-weight: 700; letter-spacing: .6px;
+}
+
+.grid-lines { position: absolute; inset: 0; opacity: .22; }
 .third-v, .third-v2 { position: absolute; top: 0; bottom: 0; width: 1px; background: #fff; }
 .third-v { left: 33.33%; } .third-v2 { left: 66.66%; }
 .third-h, .third-h2 { position: absolute; left: 0; right: 0; height: 1px; background: #fff; }
 .third-h { top: 33.33%; } .third-h2 { top: 66.66%; }
+
+/* 底栏：三段大读数 + 快门 + EV 刻度 */
 .vf-bottom {
-  position: absolute; bottom: 0; left: 0; right: 0; display: flex; align-items: center;
-  justify-content: space-between; padding: 10px 16px;
-  background: linear-gradient(0deg, rgba(0,0,0,.6), transparent); color: #fff; font-size: 11px;
+  position: absolute; bottom: 0; left: 0; right: 0; display: flex; align-items: flex-end;
+  justify-content: space-between; gap: 10px; padding: 10px 12px 11px;
+  background: linear-gradient(0deg, rgba(0,0,0,.72), transparent); color: #fff;
 }
-.vf-meter b { color: var(--accent); font-size: 13px; }
-.hint { color: var(--dim); font-size: 10px; font-weight: 400; }
+.sony-readout { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.sr-main {
+  font-size: 15px; font-weight: 700; color: #fff; font-variant-numeric: tabular-nums;
+  letter-spacing: .2px; line-height: 1.25;
+}
+.sony-readout .sr-main:nth-child(1) { font-size: 19px; }
+.sr-sub { font-size: 9.5px; color: rgba(255,255,255,.66); font-variant-numeric: tabular-nums; }
+.sr-mini { font-size: 9.5px; color: rgba(255,255,255,.62); font-variant-numeric: tabular-nums; }
+.sony-ev { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.sony-ev-track {
+  position: relative; display: flex; align-items: center; gap: 5px;
+  padding: 3px 7px; background: rgba(0,0,0,.42); border-radius: 3px;
+}
+.sony-ev-track i { width: 12px; height: 3px; background: rgba(255,255,255,.38); border-radius: 1px; }
+.sony-ev-track i.zero { height: 9px; width: 2px; background: var(--accent); }
+.sony-ev-track b {
+  position: absolute; top: -2px; width: 2px; height: 13px; background: #fff;
+  border-radius: 1px; transform: translateX(-50%); transition: left .12s;
+}
+.sony-ev-scale {
+  display: flex; justify-content: space-between; width: 100%;
+  font-size: 8.5px; color: rgba(255,255,255,.45); font-variant-numeric: tabular-nums;
+}
+
+/* 快门按钮：金属环 + 内芯 */
 .shutter-btn {
-  pointer-events: auto; width: 58px; height: 58px; border-radius: 50%;
-  background: var(--accent); border: 3px solid #fff; display: grid; place-items: center;
-  box-shadow: 0 0 0 3px rgba(0,0,0,.5), 0 4px 12px rgba(0,0,0,.6);
+  pointer-events: auto; position: relative; width: 62px; height: 62px;
+  flex: 0 0 auto; border: 0; background: none; padding: 0; border-radius: 50%;
 }
-.shutter-btn:active { transform: scale(.95); }
-.shutter-inner { width: 34px; height: 34px; border-radius: 50%; background: #1a1a1a; border: 1px solid #000; }
-.vf-right { display: flex; flex-direction: column; text-align: right; gap: 2px; }
+.shutter-ring {
+  position: absolute; inset: 0; border-radius: 50%;
+  background: conic-gradient(from 140deg, #5e6670, #cfd6dd 22%, #4f5761 46%, #c6cdd4 68%, #4c545e 88%, #5e6670);
+  box-shadow: 0 2px 8px rgba(0,0,0,.75), inset 0 1px 0 rgba(255,255,255,.5);
+}
+.shutter-inner {
+  position: absolute; inset: 7px; border-radius: 50%;
+  background: radial-gradient(circle at 42% 34%, #3a4048, #16191d 68%);
+  border: 1px solid #000; box-shadow: inset 0 2px 4px rgba(0,0,0,.8);
+}
+.shutter-btn:active .shutter-inner { transform: scale(.94); }
+.shutter-btn:disabled { opacity: .5; cursor: wait; }
 .shutter-flash { position: absolute; inset: 0; background: #fff; animation: flash .12s ease-out forwards; pointer-events: none; }
 @keyframes flash { from { opacity: .9; } to { opacity: 0; } }
-.gl-error { position: absolute; inset: 0; display: grid; place-items: center; color: var(--bad); background: #111; padding: 20px; text-align: center; }
-
-/* ---- 取景器下方 ---- */
-.under-vf { display: flex; gap: 10px; flex: 0 0 auto; }
-.ev-scale, .histogram { flex: 1; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 10px 14px; }
-.module-title { font-size: 11px; font-weight: 700; letter-spacing: 1px; color: var(--accent); margin-bottom: 8px; display: flex; justify-content: space-between; }
-.ev-track { position: relative; display: flex; justify-content: space-between; padding: 8px 0 4px; border-bottom: 1px solid var(--line); }
-.ev-tick { display: flex; flex-direction: column; align-items: center; gap: 3px; font-size: 9px; color: var(--dim); flex: 1; }
-.tick-line { width: 1px; height: 8px; background: var(--line); }
-.ev-tick.zero .tick-line { background: var(--accent); height: 12px; }
-.ev-marker { position: absolute; top: 2px; width: 3px; height: 20px; background: var(--accent); border-radius: 2px; transform: translateX(-50%); transition: left .15s; box-shadow: 0 0 6px var(--accent); }
-.ev-readout { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; margin-top: 8px; font-size: 11px; }
-.ev-readout div { display: flex; justify-content: space-between; }
-.ev-readout span { color: var(--dim); }
-.ev-readout .good { color: var(--good); } .ev-readout .bad { color: var(--bad); }
-.hist-svg { width: 100%; height: 54px; background: #0b0d10; border: 1px solid var(--line); display: block; }
-.hist-labels { display: flex; justify-content: space-between; font-size: 9px; color: var(--dim); margin-top: 3px; }
-.warning { font-size: 10px; color: var(--dim); margin-top: 4px; }
-.warning.warn-active { color: var(--bad); font-weight: 700; }
-
-/* ---- 控制面板 ---- */
-.panel-section { padding: 12px 14px; border-bottom: 1px solid var(--line); }
-.slider-row { display: block; margin-bottom: 10px; }
-.slider-head { display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 4px; }
-.slider-head b { color: var(--accent); font-variant-numeric: tabular-nums; }
-input[type=range] { width: 100%; height: 4px; accent-color: var(--accent); cursor: pointer; }
-.quick-row, .btn-group { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
-.quick-row button, .btn-group button {
-  background: var(--panel-2); color: var(--dim); border: 1px solid var(--line);
-  border-radius: 3px; padding: 4px 7px; font-size: 10px;
+.gl-error {
+  position: absolute; inset: 0; display: grid; place-items: center;
+  color: var(--bad); background: #111; padding: 20px; text-align: center;
 }
-.quick-row button:hover, .btn-group button:hover { border-color: var(--accent-dim); color: var(--text); }
-.quick-row button.active, .btn-group button.active { background: var(--accent-dim); color: #fff; border-color: var(--accent); }
-.info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 10px; margin: 8px 0; font-size: 10px; }
-.info-grid div { display: flex; justify-content: space-between; gap: 4px; }
-.info-grid span { color: var(--dim); }
-.info-grid b { color: var(--text); font-variant-numeric: tabular-nums; }
 
-/* ---- 页脚 ---- */
-.app-footer { flex: 0 0 auto; display: flex; justify-content: space-between; gap: 16px; padding: 6px 16px; font-size: 10px; color: var(--dim); border-top: 1px solid var(--line); background: #101216; }
-.app-footer code { color: var(--accent); }
-
-/* ---- 回放 ---- */
-.playback { position: fixed; inset: 4% 8%; background: #14171c; border: 1px solid var(--accent-dim); border-radius: 8px; z-index: 50; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,.8); }
-.playback-head { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--line); }
-.playback-body { flex: 1; display: flex; gap: 16px; padding: 14px; min-height: 0; }
-.playback-img { max-width: 60%; max-height: 100%; object-fit: contain; background: #000; border-radius: 4px; }
-.exif { flex: 1; overflow-y: auto; }
-.exif-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; font-size: 11px; }
-.exif-grid div { display: flex; justify-content: space-between; border-bottom: 1px dotted var(--line); padding-bottom: 3px; }
-.exif-grid span { color: var(--dim); }
-.download-link { display: inline-block; margin-top: 14px; color: var(--accent); text-decoration: none; border: 1px solid var(--accent-dim); padding: 6px 12px; border-radius: 4px; }
-.filmstrip { display: flex; gap: 6px; padding: 8px 14px; overflow-x: auto; border-top: 1px solid var(--line); }
-.filmstrip img { width: 70px; height: 46px; object-fit: cover; cursor: pointer; border: 2px solid transparent; border-radius: 3px; }
-.filmstrip img.active { border-color: var(--accent); }
-
-/* ---- P1 / P2 新增控件 ---- */
-.toggle-btn {
-  background: var(--panel-2); color: var(--dim); border: 1px solid var(--line);
-  border-radius: 3px; padding: 4px 8px; font-size: 10px;
-  display: inline-flex; align-items: center; gap: 5px;
-}
-.toggle-btn .toggle-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--line); }
-.toggle-btn.active { color: #fff; border-color: var(--accent); background: var(--accent-dim); }
-.toggle-btn.active .toggle-dot { background: var(--good); box-shadow: 0 0 5px var(--good); }
-.info-hint { font-size: 10px; color: var(--dim); line-height: 1.5; margin: 6px 0 0; }
-.lut-select, .file-btn {
-  background: var(--panel-2); color: var(--text); border: 1px solid var(--line);
-  border-radius: 3px; padding: 4px 7px; font-size: 10px; font-family: inherit;
-}
-.lut-select { flex: 1; min-width: 0; }
-.file-btn { cursor: pointer; }
-.file-btn:hover { border-color: var(--accent); }
-.level-overlay {
-  position: absolute; top: 50%; left: 50%; width: 200px; height: 1px;
-  transform-origin: center; pointer-events: none;
-}
-.level-line { position: absolute; top: 0; left: 0; right: 0; height: 2px; background: rgba(67,209,122,.85); box-shadow: 0 0 4px rgba(67,209,122,.6); }
-.level-line::before, .level-line::after { content: ""; position: absolute; top: -6px; width: 2px; height: 14px; background: rgba(67,209,122,.85); }
+/* HUD 辅助叠层 */
+.level-overlay { position: absolute; top: 50%; left: 50%; width: 200px; height: 1px; transform-origin: center; pointer-events: none; }
+.level-line { position: absolute; top: 0; left: 0; right: 0; height: 2px; background: rgba(74,222,128,.85); box-shadow: 0 0 4px rgba(74,222,128,.6); }
+.level-line::before, .level-line::after { content: ""; position: absolute; top: -6px; width: 2px; height: 14px; background: rgba(74,222,128,.85); }
 .level-line::before { left: 0; } .level-line::after { right: 0; }
-.level-label { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); color: var(--good); font-size: 10px; white-space: nowrap; }
-.zebra-hint { position: absolute; top: 34px; left: 12px; font-size: 10px; color: #ffe08a; background: rgba(0,0,0,.5); padding: 2px 6px; border-radius: 3px; }
+.level-label { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); color: var(--focus-green); font-size: 10px; white-space: nowrap; }
+.zebra-hint { position: absolute; top: 34px; left: 10px; font-size: 10px; color: #ffe08a; background: rgba(0,0,0,.5); padding: 2px 6px; border-radius: 3px; }
 .countdown { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); font-size: 72px; font-weight: 700; color: #fff; text-shadow: 0 0 18px rgba(0,0,0,.8); }
-.vf-status { position: absolute; top: 26px; left: 0; right: 0; display: flex; gap: 10px; padding: 0 12px; font-size: 10px; color: rgba(255,255,255,.8); text-shadow: 0 1px 2px #000; }
-.shutter-btn:disabled { opacity: .5; cursor: wait; }
-.download-row { display: flex; align-items: center; gap: 12px; }
-.inline-check { font-size: 11px; color: var(--dim); display: inline-flex; align-items: center; gap: 4px; }
-.download-link { border: 0; cursor: pointer; font-family: inherit; font-size: 12px; }
-.bracket-strip { display: flex; align-items: center; gap: 6px; padding: 8px 14px; border-top: 1px solid var(--line); overflow-x: auto; }
-.bracket-strip .bracket-label { font-size: 10px; color: var(--dim); white-space: nowrap; }
-.bracket-strip button { background: var(--panel-2); color: var(--text); border: 1px solid var(--line); border-radius: 3px; padding: 4px 8px; font-size: 11px; white-space: nowrap; }
-.bracket-strip button.active { border-color: var(--accent); color: var(--accent); }
-.bracket-strip small { color: var(--dim); }
+.vf-status {
+  position: absolute; top: 40px; left: 0; display: flex; flex-direction: column; gap: 3px;
+  padding: 0 10px; font-size: 9.5px; color: rgba(255,255,255,.78); text-shadow: 0 1px 2px #000;
+}
+.vf-status .hint { color: rgba(255,255,255,.5); font-size: 9px; }
+.hint { color: var(--dim); font-size: 10px; font-weight: 400; }
 
-/* ================= 相机机身造型（本轮新增） ================= */
-/* 机身：黑色磨砂 + 侧面蒙皮纹路 + 顶部高光，模拟单反 / 微单的顶盖与卡口区 */
+/* 机位复位提示：可点击 */
+.view-hint {
+  position: absolute; top: 38px; right: 10px; pointer-events: auto;
+  background: rgba(245,165,36,.16); color: var(--accent);
+  border: 1px solid rgba(245,165,36,.55); border-radius: 3px;
+  padding: 4px 8px; font-size: 10px; font-weight: 600; letter-spacing: .3px;
+  backdrop-filter: blur(2px);
+}
+.view-hint:hover { background: rgba(245,165,36,.28); }
+
+/* 机身肩部 */
 .camera-body {
   position: relative; display: flex; align-items: stretch;
   flex: 1 1 auto; min-height: 0; min-width: 0;
   background: linear-gradient(180deg, #23272d 0%, #171a1f 26%, #101317 100%);
-  border: 1px solid #05070a; border-radius: 10px;
-  padding: 8px; gap: 8px;
+  border: 1px solid #05070800; border-radius: 8px; padding: 7px; gap: 7px;
   box-shadow: inset 0 1px 0 rgba(255,255,255,.08), 0 6px 20px rgba(0,0,0,.6);
 }
-/* 蒙皮纹理：细密交叉网格，覆盖机身侧面（不遮挡取景器，用伪元素放两侧） */
 .camera-body::before, .camera-body::after {
   content: ""; position: absolute; top: 12px; bottom: 12px; width: 6px; border-radius: 3px;
   background-image:
@@ -220,92 +233,364 @@ input[type=range] { width: 100%; height: 4px; accent-color: var(--accent); curso
 }
 .camera-body::before { left: 2px; }
 .camera-body::after { right: 2px; }
-
-/* 机身肩部（顶部铭牌条 + 指示灯 / 底部按键条） */
-.body-shoulder {
-  flex: 0 0 auto; display: flex; flex-direction: column; justify-content: flex-start;
-  gap: 6px; padding: 6px 4px; min-width: 0;
-}
-.body-brand { font-size: 13px; font-weight: 800; letter-spacing: .6px; color: #e7ebf0; }
-.body-model { color: var(--accent); font-size: 10px; margin-left: 4px; border: 1px solid var(--accent-dim); padding: 0 3px; border-radius: 2px; vertical-align: middle; }
-.body-sub { font-size: 8px; color: #6a727c; letter-spacing: 1px; writing-mode: vertical-rl; text-orientation: mixed; }
+.body-shoulder { flex: 0 0 auto; display: flex; flex-direction: column; justify-content: flex-start; gap: 6px; padding: 6px 3px; min-width: 0; }
+.body-brand { font-size: 13px; font-weight: 700; letter-spacing: .5px; color: #e7ebf0; }
+.body-model { color: var(--accent); font-size: 9px; margin-left: 3px; border: 1px solid var(--accent-soft); padding: 0 3px; border-radius: 2px; vertical-align: middle; }
+.body-sub { font-size: 8px; color: var(--dim-2); letter-spacing: 1px; writing-mode: vertical-rl; text-orientation: mixed; }
 .body-lamps { display: flex; gap: 5px; }
-.lamp { width: 7px; height: 7px; border-radius: 50%; background: #2a2f36; border: 1px solid #06080a; box-shadow: inset 0 1px 1px rgba(255,255,255,.12); }
+.lamp { width: 7px; height: 7px; border-radius: 50%; background: #262b31; border: 1px solid #06080a; box-shadow: inset 0 1px 1px rgba(255,255,255,.12); }
 .lamp.on { background: var(--good); box-shadow: 0 0 6px var(--good); }
 .lamp.on.amber { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
 .body-shoulder.right { justify-content: flex-end; align-items: center; }
 .body-btn {
-  width: 26px; height: 26px; border-radius: 50%; font-size: 10px; color: #cdd4db;
+  width: 28px; height: 28px; border-radius: 50%; font-size: 11px; color: #cdd4db;
   background: radial-gradient(circle at 35% 30%, #3a4048, #1a1e23);
   border: 1px solid #06080a; box-shadow: inset 0 1px 0 rgba(255,255,255,.12), 0 1px 3px rgba(0,0,0,.7);
 }
 .body-btn:hover { color: var(--accent); }
 
-/* ---- 机顶转盘 ---- */
-.mode-dial { flex: 1; display: flex; align-items: center; gap: 18px; min-width: 0; }
+/* ================= 机顶转盘 ================= */
+.mode-dial { flex: 1; display: flex; align-items: center; gap: 16px; min-width: 0; overflow: hidden; }
 .mode-switch { display: flex; flex-wrap: wrap; align-items: center; gap: 3px 4px; max-width: 210px; }
-.mode-caption { font-size: 8px; color: #6c747e; letter-spacing: 1px; margin-right: 2px; }
+.mode-caption { font-size: 8px; color: var(--dim-2); letter-spacing: 1px; margin-right: 2px; }
 .mode-switch button {
   min-width: 24px; padding: 3px 5px; font-size: 10px; font-weight: 700; color: #9aa2ac;
   background: linear-gradient(180deg, #2a2f36, #1a1e23);
-  border: 1px solid #06080a; border-radius: 3px;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.08);
+  border: 1px solid #06080a; border-radius: 3px; box-shadow: inset 0 1px 0 rgba(255,255,255,.08);
 }
 .mode-switch button:hover { color: #e3e8ee; }
-.mode-switch button.active { color: #14171b; background: linear-gradient(180deg, #f0b655, var(--accent)); border-color: #7a5a24; }
-.dial-row { display: flex; gap: 14px; }
-
-/* 转盘本体：金属盘面 + 刻度 + 指针 */
-.dial { display: flex; flex-direction: column; align-items: center; gap: 3px; user-select: none; }
-.dial-face { width: 62px; height: 62px; cursor: grab; touch-action: none; }
+.mode-switch button.active { color: #14171b; background: linear-gradient(180deg, #ffc463, var(--accent)); border-color: var(--accent-soft); }
+.dial-row { display: flex; gap: 13px; }
+.dial { display: flex; flex-direction: column; align-items: center; gap: 2px; user-select: none; }
+.dial-face { width: 58px; height: 58px; cursor: grab; touch-action: none; }
 .dial-face:active { cursor: grabbing; }
 .dial-body { fill: #24282e; stroke: #06080a; stroke-width: 1.5; }
 .dial-inner { fill: #171a1f; stroke: #3a4048; stroke-width: .8; }
 .dial-tick { stroke: #4b545e; stroke-width: 1.4; stroke-linecap: round; }
-.dial-tick.on { stroke: var(--accent); stroke-width: 2.2; filter: drop-shadow(0 0 2px rgba(232,161,58,.8)); }
+.dial-tick.on { stroke: var(--accent); stroke-width: 2.2; filter: drop-shadow(0 0 2px rgba(245,165,36,.8)); }
 .dial-pointer { stroke: #f2f5f8; stroke-width: 2.4; stroke-linecap: round; }
 .dial-hub { fill: #3a4048; stroke: #06080a; stroke-width: 1; }
 .dial-value { font-size: 11px; font-weight: 700; color: var(--accent); font-variant-numeric: tabular-nums; letter-spacing: .3px; }
-.dial-label { font-size: 8px; color: #6c747e; letter-spacing: 1px; }
+.dial-label { font-size: 8px; color: var(--dim-2); letter-spacing: 1px; }
+.dial-marks { display: flex; gap: 5px; font-size: 8px; color: var(--dim-2); }
 .dial.accent .dial-value { color: #7fd4ff; }
 .dial.accent .dial-tick.on { stroke: #7fd4ff; filter: drop-shadow(0 0 2px rgba(127,212,255,.8)); }
 
-/* ---- 取景器 HUD 补充 ---- */
-.vf-mode { color: var(--accent); font-weight: 700; }
-.vf-sep { width: 1px; height: 10px; background: rgba(255,255,255,.25); }
-.vf-mono { font-variant-numeric: tabular-nums; color: rgba(255,255,255,.85); }
-.vf-readout { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.readout-main { display: flex; align-items: baseline; gap: 8px; font-variant-numeric: tabular-nums; }
-.readout-shutter { font-size: 17px; font-weight: 700; color: #fff; }
-.readout-ap, .readout-iso { font-size: 12px; color: rgba(255,255,255,.8); }
-.readout-sub { font-size: 9px; color: rgba(255,255,255,.6); }
-.readout-focal { font-size: 13px; font-weight: 700; color: #fff; font-variant-numeric: tabular-nums; }
-.vf-right { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
-/* 快门按钮：外圈金属环 + 内芯，压感反馈 */
-.shutter-btn { position: relative; width: 62px; height: 62px; flex: 0 0 auto; }
-.shutter-ring {
-  position: absolute; inset: 0; border-radius: 50%;
-  background: conic-gradient(from 140deg, #6b7480, #d7dde4 22%, #5c6570 46%, #cfd6dd 68%, #59626d 88%, #6b7480);
-  box-shadow: 0 2px 8px rgba(0,0,0,.7), inset 0 1px 0 rgba(255,255,255,.5);
+/* ================= 取景器下方：曝光刻度 + 直方图 ================= */
+.under-vf { display: flex; gap: 8px; flex: 0 0 auto; }
+.ev-scale, .histogram {
+  flex: 1; background: var(--panel); border: 1px solid var(--line-soft);
+  border-radius: var(--radius); padding: 8px 12px; min-width: 0;
 }
-.shutter-btn .shutter-inner { position: absolute; inset: 7px; }
-/* 底部 ±EV 刻度条 */
-.vf-evbar {
-  position: absolute; bottom: 62px; left: 50%; transform: translateX(-50%);
-  display: flex; align-items: center; gap: 4px; padding: 2px 8px;
-  background: rgba(0,0,0,.45); border-radius: 3px;
-  font-size: 9px; color: rgba(255,255,255,.6);
+.module-title {
+  font-size: 10px; font-weight: 700; letter-spacing: 1px; color: var(--accent);
+  margin-bottom: 6px; display: flex; justify-content: space-between;
 }
-.vf-evbar i { width: 14px; height: 3px; background: rgba(255,255,255,.35); }
-.vf-evbar i.ev-zero { height: 7px; width: 2px; background: var(--accent); }
-.vf-evbar b { position: absolute; top: -1px; width: 2px; height: 11px; background: #fff; border-radius: 1px; transform: translateX(-50%); transition: left .12s; }
-/* 状态列改为贴左竖排 */
-.vf-status { top: 44px; flex-direction: column; gap: 3px; }
+.ev-track { position: relative; display: flex; justify-content: space-between; padding: 7px 0 3px; border-bottom: 1px solid var(--line-soft); }
+.ev-tick { display: flex; flex-direction: column; align-items: center; gap: 3px; font-size: 9px; color: var(--dim-2); flex: 1; }
+.tick-line { width: 1px; height: 7px; background: var(--line); }
+.ev-tick.zero .tick-line { background: var(--accent); height: 12px; }
+.ev-marker {
+  position: absolute; top: 2px; width: 3px; height: 18px; background: var(--accent);
+  border-radius: 2px; transform: translateX(-50%); transition: left .15s; box-shadow: 0 0 6px var(--accent);
+}
+.ev-readout { display: grid; grid-template-columns: 1fr 1fr; gap: 3px 12px; margin-top: 6px; font-size: 10.5px; }
+.ev-readout div { display: flex; justify-content: space-between; }
+.ev-readout span { color: var(--dim); }
+.ev-readout .good { color: var(--good); } .ev-readout .bad { color: var(--bad); }
+.hist-svg { width: 100%; height: 46px; background: #0b0d10; border: 1px solid var(--line-soft); display: block; }
+.hist-labels { display: flex; justify-content: space-between; font-size: 9px; color: var(--dim-2); margin-top: 2px; }
+.warning { font-size: 9.5px; color: var(--dim); margin-top: 3px; }
+.warning.warn-active { color: var(--bad); font-weight: 700; }
 
-@media (max-width: 980px) {
-  .app-main { flex-direction: column; }
-  .right-col { width: 100%; flex: 0 0 auto; max-height: 42vh; }
-  .under-vf { flex-direction: column; }
-  .camera-top { flex-wrap: wrap; }
+/* ================= Sony 菜单（机背） ================= */
+.sony-menu { display: flex; flex-direction: column; min-height: 0; flex: 1; }
+.menu-tabs {
+  display: flex; flex: 0 0 auto; gap: 0; border-bottom: 1px solid #05070a;
+  background: linear-gradient(180deg, #22262b, #171a1e);
+}
+.menu-tabs button {
+  flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px;
+  padding: 8px 2px 6px; background: none; border: 0; border-bottom: 2px solid transparent;
+  color: var(--dim); font-size: 9px; letter-spacing: .5px;
+}
+.menu-tabs button .tab-icon { font-size: 15px; line-height: 1; }
+.menu-tabs button .tab-label { font-size: 9px; }
+.menu-tabs button:hover { color: var(--text); }
+.menu-tabs button.active { color: var(--accent); border-bottom-color: var(--accent); background: rgba(245,165,36,.07); }
+.menu-scroll { flex: 1; overflow-y: auto; padding: 4px 0 14px; scrollbar-width: thin; }
+.menu-scroll::-webkit-scrollbar { width: 8px; }
+.menu-scroll::-webkit-scrollbar-thumb { background: #333940; border-radius: 4px; }
+.menu-group-title {
+  display: flex; justify-content: space-between; align-items: baseline;
+  padding: 12px 14px 6px; font-size: 11px; font-weight: 700; color: #cdd4db; letter-spacing: .4px;
+}
+.menu-group-title span { font-size: 8.5px; color: var(--dim-2); letter-spacing: 1px; font-weight: 400; }
+.menu-row { padding: 7px 14px; border-bottom: 1px solid rgba(255,255,255,.045); }
+.menu-row:last-child { border-bottom: 0; }
+.menu-row-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; min-height: 18px; }
+.menu-row-label { font-size: 11.5px; color: var(--text); }
+.menu-row-value { font-size: 11.5px; font-weight: 700; color: var(--accent); font-variant-numeric: tabular-nums; text-align: right; }
+.menu-row-body { margin-top: 5px; }
+.menu-row-hint { margin-top: 3px; font-size: 9.5px; color: var(--dim-2); }
+.menu-info {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 3px 12px;
+  padding: 9px 14px 11px; margin: 0 0 2px; font-size: 10px; background: rgba(255,255,255,.018);
+}
+.menu-info div { display: flex; justify-content: space-between; gap: 6px; }
+.menu-info span { color: var(--dim); }
+.menu-info b { color: var(--text); font-variant-numeric: tabular-nums; font-weight: 600; }
+.menu-note { padding: 6px 14px 9px; font-size: 9.5px; line-height: 1.55; color: var(--dim-2); }
+.menu-action {
+  background: var(--panel-3); color: var(--text); border: 1px solid var(--line);
+  border-radius: 4px; padding: 7px 12px; font-size: 11px; width: 100%;
+}
+.menu-action:hover { border-color: var(--accent); color: var(--accent); }
+
+/* 分段控件（Sony 菜单里的横向选择条） */
+.segmented { display: flex; gap: 3px; flex-wrap: wrap; }
+.segmented button {
+  flex: 1 1 auto; min-width: 46px; padding: 5px 8px; font-size: 10.5px;
+  background: var(--panel-2); color: var(--dim); border: 1px solid var(--line); border-radius: 3px;
+  white-space: nowrap;
+}
+.segmented button:hover { color: var(--text); border-color: #3d444c; }
+.segmented button.active { background: var(--accent); color: #14171b; border-color: var(--accent); font-weight: 700; }
+
+/* 标签按钮 */
+.chip-row { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-top: 4px; }
+.chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  background: var(--panel-2); color: var(--dim); border: 1px solid var(--line);
+  border-radius: 3px; padding: 5px 9px; font-size: 10.5px;
+}
+.chip:hover { color: var(--text); border-color: #3d444c; }
+.chip.active { color: #14171b; background: var(--accent); border-color: var(--accent); font-weight: 700; }
+.chip.tiny { padding: 3px 6px; font-size: 9.5px; min-width: 26px; justify-content: center; }
+.chip-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--line); }
+.chip.active .chip-dot { background: #14171b; }
+
+input[type=range] {
+  width: 100%; height: 18px; accent-color: var(--accent); cursor: pointer; background: transparent;
+}
+input[type=range]::-webkit-slider-runnable-track { height: 4px; background: #333a42; border-radius: 2px; }
+input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none; width: 14px; height: 14px; margin-top: -5px;
+  border-radius: 50%; background: var(--accent); border: 1px solid #7a4f10;
+  box-shadow: 0 1px 3px rgba(0,0,0,.7);
+}
+.lut-select, .file-btn {
+  background: var(--panel-2); color: var(--text); border: 1px solid var(--line);
+  border-radius: 3px; padding: 5px 8px; font-size: 10.5px; font-family: inherit;
+}
+.lut-select { flex: 1; min-width: 90px; }
+.file-btn { cursor: pointer; display: inline-block; }
+.file-btn:hover { border-color: var(--accent); }
+.toggle-btn {
+  background: var(--panel-2); color: var(--dim); border: 1px solid var(--line);
+  border-radius: 3px; padding: 4px 8px; font-size: 10px;
+  display: inline-flex; align-items: center; gap: 5px;
+}
+.toggle-btn .toggle-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--line); }
+.toggle-btn.active { color: #14171b; border-color: var(--accent); background: var(--accent); }
+.info-hint { font-size: 10px; color: var(--dim); line-height: 1.5; margin: 6px 0 0; }
+
+/* ================= 页脚 ================= */
+.app-footer {
+  flex: 0 0 auto; display: flex; justify-content: space-between; gap: 16px;
+  padding: 5px 14px; font-size: 10px; color: var(--dim-2);
+  border-top: 1px solid var(--line-soft); background: #0c0e11;
+}
+.app-footer code { color: var(--accent); }
+
+/* ================= 回放 ================= */
+.playback {
+  position: fixed; inset: 4% 8%; background: #14171c; border: 1px solid var(--accent-soft);
+  border-radius: 8px; z-index: 50; display: flex; flex-direction: column;
+  box-shadow: 0 20px 60px rgba(0,0,0,.85);
+}
+.playback-head { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+.playback-body { flex: 1; display: flex; gap: 14px; padding: 12px; min-height: 0; }
+.playback-img { max-width: 60%; max-height: 100%; object-fit: contain; background: #000; border-radius: 4px; }
+.exif { flex: 1; overflow-y: auto; }
+.exif-grid { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 5px 12px; font-size: 11px; }
+.exif-grid div { display: flex; justify-content: space-between; gap: 8px; border-bottom: 1px dotted var(--line); padding-bottom: 3px; min-width: 0; }
+.exif-grid span { color: var(--dim); flex: 0 0 auto; }
+.exif-grid b, .exif-grid div > :last-child { text-align: right; overflow-wrap: anywhere; min-width: 0; }
+/* .exif 纵向滚动会让 overflow-x 也变成 auto，超出的列会被裁掉 —— 显式裁掉横向滚动并用单列避免挤压 */
+/* padding-right 给滚动条留位置：否则右对齐的数值会被叠加式滚动条压住最后一两个字 */
+.exif { overflow-x: hidden; padding-right: 10px; scrollbar-gutter: stable; }
+.download-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 12px; }
+.download-link {
+  display: inline-block; color: var(--accent); text-decoration: none;
+  border: 1px solid var(--accent-soft); padding: 7px 13px; border-radius: 4px;
+  background: none; cursor: pointer; font-family: inherit; font-size: 12px;
+}
+.download-link:hover { background: rgba(245,165,36,.12); }
+.inline-check { font-size: 11px; color: var(--dim); display: inline-flex; align-items: center; gap: 5px; }
+.filmstrip { display: flex; gap: 6px; padding: 8px 14px; overflow-x: auto; border-top: 1px solid var(--line); }
+.filmstrip img { width: 70px; height: 46px; object-fit: cover; cursor: pointer; border: 2px solid transparent; border-radius: 3px; }
+.filmstrip img.active { border-color: var(--accent); }
+.bracket-strip { display: flex; align-items: center; gap: 6px; padding: 8px 14px; border-top: 1px solid var(--line); overflow-x: auto; }
+.bracket-strip .bracket-label { font-size: 10px; color: var(--dim); white-space: nowrap; }
+.bracket-strip button {
+  background: var(--panel-2); color: var(--text); border: 1px solid var(--line);
+  border-radius: 3px; padding: 4px 8px; font-size: 11px; white-space: nowrap;
+}
+.bracket-strip button.active { border-color: var(--accent); color: var(--accent); }
+.bracket-strip small { color: var(--dim); }
+
+/* ================= 响应式：平板 ================= */
+@media (max-width: 1180px) {
+  .right-col { width: 320px; flex: 0 0 320px; }
+  .top-sub { display: none; }
+  .dial-face { width: 52px; height: 52px; }
+  .mode-switch { max-width: 170px; }
+}
+
+@media (max-width: 1024px) {
+  .app-main { gap: 8px; padding: 8px; }
+  .right-col { width: 290px; flex: 0 0 290px; }
+  .dial-row { gap: 9px; }
+  .dial-face { width: 48px; height: 48px; }
   .body-sub { display: none; }
+}
+
+/* 平板竖屏 / 手机横屏：侧栏改为可开合抽屉（浮层） */
+@media (max-width: 900px) {
+  /* 抽屉是绝对定位浮层：父容器必须裁剪，否则 translateX(102%) 会把页面撑宽。
+     .app-main 已有 position:relative，这里补 overflow:hidden 作为第二道保险。 */
+  .app-main { flex-direction: column; overflow: hidden; }
+  .left-col { flex: 1 1 auto; }
+  .right-col {
+    position: absolute; top: 0; right: 0; bottom: 0; width: min(380px, 88vw);
+    flex: none; z-index: 20; border-radius: 0;
+    transform: translateX(100%); transition: transform .22s ease, visibility 0s .22s;
+    box-shadow: -12px 0 32px rgba(0,0,0,.7);
+    visibility: hidden;
+  }
+  .right-col.drawer-open {
+    transform: translateX(0); visibility: visible;
+    transition: transform .22s ease, visibility 0s;
+  }
+  .drawer-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 9px 12px; border-bottom: 1px solid var(--line);
+    background: linear-gradient(180deg, #23272c, #191c20);
+    font-size: 12px; font-weight: 700; color: var(--accent);
+  }
+  .drawer-head button {
+    background: var(--panel-2); color: var(--text); border: 1px solid var(--line);
+    border-radius: 4px; width: 30px; height: 30px; font-size: 13px;
+  }
+  .drawer-backdrop {
+    position: absolute; inset: 0; z-index: 15; background: rgba(0,0,0,.55);
+    backdrop-filter: blur(1px);
+  }
+  .under-vf { flex-direction: row; }
+  .camera-top { flex-wrap: wrap; gap: 8px 12px; }
+  .mode-dial { order: 3; flex-basis: 100%; justify-content: space-between; }
+  .top-actions { margin-left: auto; }
+}
+
+/* ================= 响应式：手机（竖屏优先出图） ================= */
+@media (max-width: 640px) {
+  body { font-size: 12px; }
+  .app-main { padding: 6px; gap: 6px; }
+  .camera-top { padding: 6px 8px 7px; gap: 6px 10px; }
+  .top-plate { border-right: 0; padding-right: 0; }
+  .top-brand { font-size: 17px; }
+  .top-model { font-size: 10px; }
+  .top-actions button { padding: 7px 9px; font-size: 12px; }   /* 触控目标 ≥ 40px */
+  .btn-text { display: none; }
+  .mode-switch { max-width: 100%; gap: 4px 5px; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
+  .mode-switch::-webkit-scrollbar { display: none; }
+  .mode-switch button { min-width: 32px; flex: 0 0 auto; padding: 5px 7px; font-size: 11px; }
+  .mode-caption { font-size: 7.5px; flex: 0 0 auto; }
+  .dial-row { gap: 6px; flex: 0 0 auto; justify-content: space-between; }
+  .dial-face { width: 40px; height: 40px; }
+  .dial-value { font-size: 9.5px; }
+  .dial-label { font-size: 7px; }
+  .dial { gap: 0; }
+  /* 机顶在手机上改成「一行模式键 + 一行转盘」，高度从 142px 压到 ~96px */
+  .mode-dial { flex-direction: column; align-items: stretch; gap: 2px; }
+
+  /* 取景器占满剩余高度，机身肩部隐藏（手机上没有肩部的位置） */
+  .camera-body { padding: 4px; gap: 0; }
+  .body-shoulder { display: none; }
+  .viewfinder { min-height: 200px; border-radius: 4px; }
+  .sf-hit { min-height: 44px; }
+
+  /* HUD 缩排：手机上只留最关键的读数 */
+  .vf-topbar { gap: 5px; padding: 6px 8px; font-size: 10px; }
+  .sony-chip { font-size: 9px; padding: 1px 4px; }
+  .vf-status { top: 34px; font-size: 9px; gap: 2px; }
+  .vf-status .hint { display: none; }
+  .view-hint { top: 32px; right: 8px; padding: 5px 8px; font-size: 9.5px; }
+  .focus-box { width: 68px; height: 68px; }
+  .vf-bottom { padding: 8px 8px 9px; gap: 6px; }
+  .sony-readout .sr-main:nth-child(1) { font-size: 16px; }
+  .sr-main { font-size: 12.5px; }
+  .sr-sub { font-size: 8.5px; }
+  .sony-ev-scale { display: none; }
+  .shutter-btn { width: 54px; height: 54px; }
+  .countdown { font-size: 56px; }
+
+  /* 机底两块面板并排（而非上下叠），高度 235px → ~112px，把空间还给取景器 */
+  .under-vf { flex-direction: row; gap: 6px; }
+  .ev-scale { flex: 1 1 46%; }
+  .histogram { flex: 1 1 54%; }
+  .ev-scale, .histogram { padding: 6px 9px; }
+  .module-title { font-size: 9px; margin-bottom: 4px; }
+  .ev-track { padding: 4px 0 2px; }
+  .ev-tick { font-size: 8px; }
+  .ev-readout { font-size: 9px; gap: 2px 8px; margin-top: 4px; }
+  .hist-svg { height: 44px; }
+  .hist-labels { font-size: 8px; }
+  .warning { font-size: 8.5px; }
+  .app-footer { display: none; }   /* 手机上隐藏快捷键说明，避免占高度 */
+
+  .right-col { width: 100%; }
+  .menu-row { padding: 8px 12px; }
+  .segmented button { min-height: 34px; }
+  .chip { min-height: 34px; }
+  .menu-tabs button { padding: 7px 1px 5px; }
+
+  /* 回放全屏化 */
+  .playback { inset: 0; border-radius: 0; border: 0; }
+  .playback-body { flex-direction: column; gap: 8px; padding: 10px; }
+  .playback-img { max-width: 100%; max-height: 46%; }
+  .exif-grid { grid-template-columns: 1fr; }
+}
+
+/* 超窄屏（小屏手机） */
+@media (max-width: 380px) {
+  .dial-row .dial:nth-child(4) { display: none; }   /* 补偿盘让位，仍可在菜单里调 */
+  .sony-ev { display: none; }
+}
+
+/* 触屏设备：悬停效果弱化，触控目标加大 */
+@media (hover: none) and (pointer: coarse) {
+  .body-btn { width: 34px; height: 34px; }
+  .top-actions button { padding: 8px 11px; }
+  .mode-switch button { min-height: 32px; }
+  .dial-face { width: 54px; height: 54px; }
+}
+
+/* 横屏手机：高度不足，压缩机顶与机底 */
+@media (max-height: 500px) and (orientation: landscape) {
+  .camera-top { padding: 4px 8px; }
+  .mode-dial { flex-basis: auto; }
+  .dial-face { width: 40px; height: 40px; }
+  .dial-value { font-size: 9px; }
+  .dial-label, .mode-caption { display: none; }
+  .under-vf { display: none; }
+  .app-footer { display: none; }
+  .vf-bottom { padding: 6px 8px; }
+  .body-sub { display: none; }
+}
+
+/* 减少动画偏好 */
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: .01ms !important; transition-duration: .01ms !important; }
 }
