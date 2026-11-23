@@ -20,23 +20,45 @@ body {
 }
 button { cursor: pointer; font-family: inherit; }
 .app-layout { display: flex; flex-direction: column; height: 100vh; }
-.app-header {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 10px 18px; background: linear-gradient(180deg, #1b1f25, #13161a);
-  border-bottom: 1px solid var(--line); flex: 0 0 auto;
+
+/* ---- 机顶（真机顶盖：铭牌 + 模式转盘 + 机身按键） ---- */
+.camera-top {
+  flex: 0 0 auto; display: flex; align-items: stretch; gap: 14px;
+  padding: 8px 16px 10px;
+  background:
+    linear-gradient(180deg, #2a2e34 0%, #1b1f24 42%, #14171b 100%);
+  border-bottom: 1px solid #05070a;
+  box-shadow: 0 2px 10px rgba(0,0,0,.75), inset 0 1px 0 rgba(255,255,255,.07);
 }
-.brand { font-size: 16px; font-weight: 700; letter-spacing: .5px; }
-.brand-mark { color: var(--accent); font-size: 20px; }
-.brand small { display: block; font-size: 10px; font-weight: 400; color: var(--dim); letter-spacing: 1.2px; margin-top: 2px; }
-.header-actions { display: flex; gap: 8px; }
-.header-actions button, .playback-head button {
-  background: var(--panel-2); color: var(--text); border: 1px solid var(--line);
-  padding: 6px 12px; border-radius: 4px; font-size: 12px;
+.top-plate { display: flex; align-items: baseline; gap: 8px; flex: 0 0 auto; padding-right: 14px; border-right: 1px solid rgba(255,255,255,.07); }
+.top-brand { font-size: 17px; font-weight: 800; letter-spacing: .8px; color: #e9edf2; text-shadow: 0 1px 2px #000; }
+.top-model {
+  font-size: 11px; font-weight: 700; color: var(--accent); border: 1px solid var(--accent-dim);
+  padding: 0 4px; border-radius: 2px; letter-spacing: 1px;
 }
-.header-actions button:hover { border-color: var(--accent); color: var(--accent); }
+.top-sub { font-size: 9px; color: #6d757f; letter-spacing: 1.4px; white-space: nowrap; }
+.top-actions { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
+.top-actions button, .playback-head button {
+  background: linear-gradient(180deg, #2c3138, #1d2126); color: #cfd6dd;
+  border: 1px solid #0a0c0f; border-radius: 4px; padding: 5px 10px; font-size: 11px;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.08), 0 1px 2px rgba(0,0,0,.6);
+}
+.top-actions button:hover { border-color: var(--accent); color: var(--accent); }
+
+/* ---- 机身外壳 ---- */
+.camera-shell {
+  flex: 1; min-height: 0; display: flex;
+  background: #0b0d10;
+  border-top: 1px solid rgba(255,255,255,.04);
+}
 .app-main { flex: 1; display: flex; gap: 12px; padding: 12px; min-height: 0; }
 .left-col { flex: 1; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
-.right-col { width: 330px; flex: 0 0 330px; overflow-y: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; }
+.right-col {
+  width: 330px; flex: 0 0 330px; overflow-y: auto;
+  background: linear-gradient(180deg, #1b1f24, #15181d);
+  border: 1px solid #05070a; border-radius: 6px;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.05), 0 2px 8px rgba(0,0,0,.6);
+}
 
 /* ---- 取景器 ---- */
 .viewfinder {
@@ -178,8 +200,112 @@ input[type=range] { width: 100%; height: 4px; accent-color: var(--accent); curso
 .bracket-strip button.active { border-color: var(--accent); color: var(--accent); }
 .bracket-strip small { color: var(--dim); }
 
+/* ================= 相机机身造型（本轮新增） ================= */
+/* 机身：黑色磨砂 + 侧面蒙皮纹路 + 顶部高光，模拟单反 / 微单的顶盖与卡口区 */
+.camera-body {
+  position: relative; display: flex; align-items: stretch;
+  flex: 1 1 auto; min-height: 0; min-width: 0;
+  background: linear-gradient(180deg, #23272d 0%, #171a1f 26%, #101317 100%);
+  border: 1px solid #05070a; border-radius: 10px;
+  padding: 8px; gap: 8px;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.08), 0 6px 20px rgba(0,0,0,.6);
+}
+/* 蒙皮纹理：细密交叉网格，覆盖机身侧面（不遮挡取景器，用伪元素放两侧） */
+.camera-body::before, .camera-body::after {
+  content: ""; position: absolute; top: 12px; bottom: 12px; width: 6px; border-radius: 3px;
+  background-image:
+    repeating-linear-gradient(45deg, rgba(255,255,255,.06) 0 1px, transparent 1px 4px),
+    repeating-linear-gradient(-45deg, rgba(255,255,255,.05) 0 1px, transparent 1px 4px);
+  background-color: #14161a; pointer-events: none;
+}
+.camera-body::before { left: 2px; }
+.camera-body::after { right: 2px; }
+
+/* 机身肩部（顶部铭牌条 + 指示灯 / 底部按键条） */
+.body-shoulder {
+  flex: 0 0 auto; display: flex; flex-direction: column; justify-content: flex-start;
+  gap: 6px; padding: 6px 4px; min-width: 0;
+}
+.body-brand { font-size: 13px; font-weight: 800; letter-spacing: .6px; color: #e7ebf0; }
+.body-model { color: var(--accent); font-size: 10px; margin-left: 4px; border: 1px solid var(--accent-dim); padding: 0 3px; border-radius: 2px; vertical-align: middle; }
+.body-sub { font-size: 8px; color: #6a727c; letter-spacing: 1px; writing-mode: vertical-rl; text-orientation: mixed; }
+.body-lamps { display: flex; gap: 5px; }
+.lamp { width: 7px; height: 7px; border-radius: 50%; background: #2a2f36; border: 1px solid #06080a; box-shadow: inset 0 1px 1px rgba(255,255,255,.12); }
+.lamp.on { background: var(--good); box-shadow: 0 0 6px var(--good); }
+.lamp.on.amber { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+.body-shoulder.right { justify-content: flex-end; align-items: center; }
+.body-btn {
+  width: 26px; height: 26px; border-radius: 50%; font-size: 10px; color: #cdd4db;
+  background: radial-gradient(circle at 35% 30%, #3a4048, #1a1e23);
+  border: 1px solid #06080a; box-shadow: inset 0 1px 0 rgba(255,255,255,.12), 0 1px 3px rgba(0,0,0,.7);
+}
+.body-btn:hover { color: var(--accent); }
+
+/* ---- 机顶转盘 ---- */
+.mode-dial { flex: 1; display: flex; align-items: center; gap: 18px; min-width: 0; }
+.mode-switch { display: flex; flex-wrap: wrap; align-items: center; gap: 3px 4px; max-width: 210px; }
+.mode-caption { font-size: 8px; color: #6c747e; letter-spacing: 1px; margin-right: 2px; }
+.mode-switch button {
+  min-width: 24px; padding: 3px 5px; font-size: 10px; font-weight: 700; color: #9aa2ac;
+  background: linear-gradient(180deg, #2a2f36, #1a1e23);
+  border: 1px solid #06080a; border-radius: 3px;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.08);
+}
+.mode-switch button:hover { color: #e3e8ee; }
+.mode-switch button.active { color: #14171b; background: linear-gradient(180deg, #f0b655, var(--accent)); border-color: #7a5a24; }
+.dial-row { display: flex; gap: 14px; }
+
+/* 转盘本体：金属盘面 + 刻度 + 指针 */
+.dial { display: flex; flex-direction: column; align-items: center; gap: 3px; user-select: none; }
+.dial-face { width: 62px; height: 62px; cursor: grab; touch-action: none; }
+.dial-face:active { cursor: grabbing; }
+.dial-body { fill: #24282e; stroke: #06080a; stroke-width: 1.5; }
+.dial-inner { fill: #171a1f; stroke: #3a4048; stroke-width: .8; }
+.dial-tick { stroke: #4b545e; stroke-width: 1.4; stroke-linecap: round; }
+.dial-tick.on { stroke: var(--accent); stroke-width: 2.2; filter: drop-shadow(0 0 2px rgba(232,161,58,.8)); }
+.dial-pointer { stroke: #f2f5f8; stroke-width: 2.4; stroke-linecap: round; }
+.dial-hub { fill: #3a4048; stroke: #06080a; stroke-width: 1; }
+.dial-value { font-size: 11px; font-weight: 700; color: var(--accent); font-variant-numeric: tabular-nums; letter-spacing: .3px; }
+.dial-label { font-size: 8px; color: #6c747e; letter-spacing: 1px; }
+.dial.accent .dial-value { color: #7fd4ff; }
+.dial.accent .dial-tick.on { stroke: #7fd4ff; filter: drop-shadow(0 0 2px rgba(127,212,255,.8)); }
+
+/* ---- 取景器 HUD 补充 ---- */
+.vf-mode { color: var(--accent); font-weight: 700; }
+.vf-sep { width: 1px; height: 10px; background: rgba(255,255,255,.25); }
+.vf-mono { font-variant-numeric: tabular-nums; color: rgba(255,255,255,.85); }
+.vf-readout { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.readout-main { display: flex; align-items: baseline; gap: 8px; font-variant-numeric: tabular-nums; }
+.readout-shutter { font-size: 17px; font-weight: 700; color: #fff; }
+.readout-ap, .readout-iso { font-size: 12px; color: rgba(255,255,255,.8); }
+.readout-sub { font-size: 9px; color: rgba(255,255,255,.6); }
+.readout-focal { font-size: 13px; font-weight: 700; color: #fff; font-variant-numeric: tabular-nums; }
+.vf-right { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
+/* 快门按钮：外圈金属环 + 内芯，压感反馈 */
+.shutter-btn { position: relative; width: 62px; height: 62px; flex: 0 0 auto; }
+.shutter-ring {
+  position: absolute; inset: 0; border-radius: 50%;
+  background: conic-gradient(from 140deg, #6b7480, #d7dde4 22%, #5c6570 46%, #cfd6dd 68%, #59626d 88%, #6b7480);
+  box-shadow: 0 2px 8px rgba(0,0,0,.7), inset 0 1px 0 rgba(255,255,255,.5);
+}
+.shutter-btn .shutter-inner { position: absolute; inset: 7px; }
+/* 底部 ±EV 刻度条 */
+.vf-evbar {
+  position: absolute; bottom: 62px; left: 50%; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 4px; padding: 2px 8px;
+  background: rgba(0,0,0,.45); border-radius: 3px;
+  font-size: 9px; color: rgba(255,255,255,.6);
+}
+.vf-evbar i { width: 14px; height: 3px; background: rgba(255,255,255,.35); }
+.vf-evbar i.ev-zero { height: 7px; width: 2px; background: var(--accent); }
+.vf-evbar b { position: absolute; top: -1px; width: 2px; height: 11px; background: #fff; border-radius: 1px; transform: translateX(-50%); transition: left .12s; }
+/* 状态列改为贴左竖排 */
+.vf-status { top: 44px; flex-direction: column; gap: 3px; }
+
 @media (max-width: 980px) {
   .app-main { flex-direction: column; }
   .right-col { width: 100%; flex: 0 0 auto; max-height: 42vh; }
   .under-vf { flex-direction: column; }
+  .camera-top { flex-wrap: wrap; }
+  .body-sub { display: none; }
 }

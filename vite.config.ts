@@ -15,6 +15,9 @@ export default defineConfig({
   },
   build: {
     target: 'es2020',
+    // three.js 已单独拆成一块（500KB 上下），这一块几乎不随业务代码变化，
+    // 因此把告警阈值抬到 600KB，避免每次构建都输出无意义的 chunk 体积警告。
+    chunkSizeWarningLimit: 600,
     // three.js 占了绝大部分体积，单独拆出来：它几乎不变，可以长期被浏览器/CI 缓存，
     // 业务代码改动时用户只需重新下载很小的那一块。
     rollupOptions: {

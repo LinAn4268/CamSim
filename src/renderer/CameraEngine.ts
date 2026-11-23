@@ -565,7 +565,7 @@ export class CameraEngine {
     m.tMask.value = this.maskRT.texture;
 
     const c = this.chromaPass.material.uniforms;
-    c.uStrength.value = clamp((s.focalLength - 24) / 46 * 0.55 + 0.05, 0.05, 0.6);
+    c.uStrength.value = clamp((s.focalLength - 24) / 46 * 0.4 + 0.04, 0.04, 0.45);
 
     const v = this.vignettePass.material.uniforms;
     // 大光圈暗角更强；焦距越短桶形畸变越明显，长焦轻微枕形

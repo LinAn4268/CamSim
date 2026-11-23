@@ -35,11 +35,13 @@ src/
   camera/selfTest.ts       浏览器控制台自测（汇总全部模块）
   camera/*.test.ts         单元测试
   store/useCameraStore.ts  集中状态
-  scene/TestScene.ts       3D 测试场景 + 光照 + 运动物体 + 深度/掩码
+  scene/TestScene.ts       真实室内拍摄场景（三段景深 + 三种色温光源 + 摆动吊灯 + 掩码场景）
   renderer/CameraEngine.ts 渲染主循环 + 后期链编排 + 测光/直方图 + 拍摄
   renderer/pipelinePlan.ts 每帧 pass 早退判定 + 自适应画质决策（纯函数）
   renderer/post/Pass.ts    ShaderPass + PingPong RT
   renderer/shaders/chains.ts 各后期 GLSL
+  ui/Dial.tsx              真机式圆形转盘（档位吸附、拖拽/滚轮）
+  ui/ModeDial.tsx          机顶模式键 + 四个参数转盘 + stepStop 档位工具
   ui/                      ControlPanel/Viewfinder/Histogram/ExposureScale/Playback
   utils/format.ts          显示格式化
   main.tsx / App.tsx / styles.css
@@ -47,6 +49,16 @@ docs/PLAN.md              本文件
 README.md                 启动/功能/单位/限制说明
 scripts/                  验收辅助脚本（开发用）
 ```
+
+### 3.1 场景与界面设计要点
+
+**场景**：从「几何体试验场」改为有真实拍摄逻辑的室内布景，按摄影意图分层——近景边几+瓶插绿植负责大光圈虚化前景；中景餐桌摆放陶杯、玻璃瓶、水果盘、书本、**18% 灰卡**与**24 色标板**作为白平衡/曝光/色彩还原参照；中景坐着人像作为 AF 与肤色目标；远景书墙、挂画、门洞暖光提供深景深对照。光源三种色温分层：侧窗自然光主光（方向光、色温可调）、窗外冷调补光、暖色台灯（点光源、距离衰减）。运动主体是摆动吊灯，CPU 场景与运动遮罩场景结构同构，供运动模糊与速度计算使用。所有纹理（木地板、乳胶漆、织物、色卡、天空）由 Canvas 程序化生成，无外部资源。
+
+墙面共两处「窗外天空」自发光平面：左墙侧窗（HDR 2.6–2.9，主要承担侧光来源与逆光轮廓）与背墙书墙左侧小窗（HDR 3.4–3.8，保证 50mm 默认视角画面里也能看到高光溢出）。两者都登记在 `skyPanels` 数组中，`autoFocusAt()` 会跳过它们——对焦到「远处的天空」没有物理意义。
+
+**界面**：按真机布局组织——机顶放品牌铭牌、FOCUS/DRIVE/SHUTTER 模式键与四个金属转盘；机身左右肩部放铭牌、竖排型号与拍摄/闪光/包围三枚状态灯；取景器 HUD 覆盖驱动模式、快门类型、白平衡、FPS、三分布线、AF 框、电子水平仪、斑马纹与 ±EV 刻度；底部是大字号快门/光圈/ISO 读数、测光建议与金属快门环按钮；右栏保留 11 组专业参数面板；下方为曝光刻度盘与直方图。
+
+转盘交互有一个易错点：`onPointerMove` 必须用「按下瞬间的档位 + 累计位移」计算目标档，而不是拿渲染期的 `index` 每帧累加偏移——后者会让一次 40px 拖动连跳五档以上（每 16px 一档，但每个 move 事件都从同一基准再加偏移）。滚轮方向也要与拖动一致（向上滚 = 加档）。
 
 ## 4. P0 / P1 / P2 功能清单
 

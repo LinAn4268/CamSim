@@ -125,7 +125,9 @@ void main() {
   // 与邻域亮度差（对比边缘）决定色差强度
   float n = dot(texture2D(tDiffuse, vUv + vec2(uTexel.x*2.0,0.0)).rgb, vec3(0.299,0.587,0.114));
   float contrast = clamp(abs(lum - n) * 4.0, 0.0, 1.0);
-  vec2 off = dir * uStrength * edge * (0.4 + contrast) * uTexel * 6.0;
+  // 横向色差（later色差）随离轴距离平方增长，且只在高对比边缘可见。
+  // 系数刻意保守：真实镜头在画面中部几乎看不到色边，过强会变成整幅绿/紫描边。
+  vec2 off = dir * uStrength * edge * edge * (0.25 + contrast) * uTexel * 2.5;
   float r = texture2D(tDiffuse, vUv + off).r;
   float g = texture2D(tDiffuse, vUv).g;
   float b = texture2D(tDiffuse, vUv - off).b;

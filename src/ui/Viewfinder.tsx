@@ -1,12 +1,13 @@
-// src/ui/Viewfinder.tsx — 取景器：挂载 WebGL、叠加构图辅助、快门按钮、状态栏
+// src/ui/Viewfinder.tsx — 取景器：挂载 WebGL 画布、真机式 HUD 叠加、快门按钮与状态灯
 // P1：单张 / 连拍 / 定时 / 包围曝光 / 多曝光 HDR 的拍摄编排都在这里完成。
 
 import { useEffect, useRef, useState } from 'react';
 import { CameraEngine, RAW_W, RAW_H } from '../renderer/CameraEngine';
 import { useCameraStore, makeExif } from '../store/useCameraStore';
 import { formatShutterLabel } from '../utils/format';
-import { bracketEVs, mergeHDR, effectiveHandheldShutter, isHandheldSafe, flashSyncDescription } from '../camera/advanced';
+import { bracketEVs, mergeHDR, effectiveHandheldShutter, isHandheldSafe, flashSyncDescription, formatDriveMode } from '../camera/advanced';
 import { decodeEncodedLinear } from '../camera/tonemap';
+import { SENSOR_PROFILES } from '../camera/optics';
 import type { Photo } from '../types/camera';
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -30,6 +31,10 @@ function channel(data: Float32Array, ch: number): Float32Array {
   return out;
 }
 
+const WB_LABEL: Record<string, string> = {
+  daylight: '日光', cloudy: '阴天', tungsten: '白炽', fluorescent: '荧光', custom: '自定义',
+};
+
 export function Viewfinder() {
   const hostRef = useRef<HTMLDivElement>(null);
   const engineRef = useRef<CameraEngine | null>(null);
@@ -40,6 +45,7 @@ export function Viewfinder() {
   // 只订阅用到的场景字段：场景光照变化不该重渲染取景器叠加层。
   const cameraRoll = useCameraStore((s) => s.scene.cameraRoll);
   const fps = useCameraStore((s) => s.fps);
+  const meterEV = useCameraStore((s) => s.meterEV);
   const meterShutter = useCameraStore((s) => s.meterShutter);
   const countdown = useCameraStore((s) => s.countdown);
   const shooting = useCameraStore((s) => s.shooting);
@@ -152,8 +158,7 @@ export function Viewfinder() {
     }
   };
 
-  // 暴露给快捷键 / 调试脚本的拍摄入口：只挂载一次，内部转发到最新的 shoot 实现，
-  // 避免每次渲染都重新赋值 window 属性。
+  // 暴露给快捷键 / 调试脚本的拍摄入口：只挂载一次，内部转发到最新的 shoot 实现。
   const shootRef = useRef(shoot);
   shootRef.current = shoot;
   useEffect(() => {
@@ -161,68 +166,118 @@ export function Viewfinder() {
   }, []);
 
   // 手持安全判断直接用物理判定：安全快门 = 1/(焦距×裁切系数)，防抖再加 2^N 档宽容度。
-  // 下面的折算快门仅用于状态栏显示（开启防抖时相机“表现得像”用了更快的快门）。
   const crop = engineRef.current?.getCropFactor() ?? 1;
   const handheldSafe = isHandheldSafe(settings.shutter, settings.focalLength, crop, settings.stabilization);
   const effectiveSafeShutter = effectiveHandheldShutter(settings.shutter, settings.focalLength, crop, settings.stabilization);
+  const sensor = SENSOR_PROFILES[settings.sensor];
+  const evDelta = meterEV - (Math.log2((settings.aperture ** 2) / settings.shutter) - Math.log2(settings.iso / 100) + settings.exposureComp);
 
   return (
-    <div className="viewfinder" ref={hostRef}>
-      {error && <div className="gl-error">WebGL 初始化失败：{error}</div>}
-      <div className="vf-overlay">
-        <div className="vf-topbar">
-          <span className="rec-dot" /> LIVE VIEW
-          <span className="vf-spacer" />
-          <span>M {formatShutterLabel(settings.shutter)} · f/{settings.aperture.toFixed(1)} · ISO{settings.iso}</span>
-          <span className="vf-spacer" />
-          <span>{fps} FPS</span>
-        </div>
-        <div className="focus-box" style={{ left: `${settings.focusPoint.x * 100}%`, top: `${settings.focusPoint.y * 100}%` }}>
-          <span className="corner tl" /><span className="corner tr" />
-          <span className="corner bl" /><span className="corner br" />
-          <span className="focus-label">{settings.focusMode === 'auto' ? 'AF' : 'MF'}</span>
-        </div>
-        {settings.guides && (
-          <div className="grid-lines">
-            <div className="third-v" /><div className="third-v2" />
-            <div className="third-h" /><div className="third-h2" />
-          </div>
-        )}
-        {settings.level && (
-          <div className="level-overlay" style={{ transform: `translate(-50%,-50%) rotate(${-cameraRoll}deg)` }}>
-            <div className="level-line" />
-            <span className="level-label">水平 {cameraRoll.toFixed(1)}°</span>
-          </div>
-        )}
-        {settings.zebra && <div className="zebra-hint">斑马纹：高亮区域显示斜纹警告</div>}
-        {countdown > 0 && <div className="countdown">{countdown}</div>}
-        <div className="vf-bottom">
-          <div className="vf-meter">
-            测光建议 <b>{formatShutterLabel(meterShutter)}</b>
-            <span className="hint">（按当前光圈/ISO）</span>
-          </div>
-          <button className="shutter-btn" onClick={shoot} disabled={shooting} title="拍摄（空格）">
-            <span className="shutter-inner" />
-          </button>
-          <div className="vf-right">
-            <span>WB {settings.wbTemp}K</span>
-            <span>{settings.focalLength.toFixed(0)}mm</span>
-            {settings.flashEnabled && <span>⚡{settings.flashSync === 'front' ? '前帘' : '后帘'}</span>}
-            {settings.bracketingEnabled && <span>BKT {bracketEVs(settings.bracketFrames, settings.bracketStepEV).map((e) => (e > 0 ? `+${e}` : e)).join('/')}</span>}
-          </div>
-        </div>
-        <div className="vf-status">
-          <span>{settings.shutterType === 'electronic' ? '电子快门' : '机械快门'}</span>
-          <span>
-            {settings.stabilization ? 'IS ON' : 'IS OFF'} {handheldSafe ? '· 手持安全' : '· 建议使用三脚架'}
-            {settings.stabilization && <span className="hint"> · 等效 {formatShutterLabel(effectiveSafeShutter)}</span>}
-          </span>
-          <span className="vf-spacer" />
-          {settings.ndStops > 0 && <span>ND {settings.ndStops} 档 · 等效 {formatShutterLabel(settings.shutter * Math.pow(2, settings.ndStops))}</span>}
-          {settings.flashEnabled && <span title={flashSyncDescription(settings.flashSync, settings.shutter)}>闪光灯 {settings.flashPowerEV >= 0 ? '+' : ''}{settings.flashPowerEV}EV</span>}
+    <div className="camera-body">
+      {/* 机身左肩：品牌与型号铭牌（真机质感的一部分） */}
+      <div className="body-shoulder">
+        <div className="body-brand">CamSim<span className="body-model">X1</span></div>
+        <div className="body-sub">DIGITAL CAMERA · WEBGL2 物理成像</div>
+        <div className="body-lamps">
+          <span className={`lamp ${shooting ? 'on' : ''}`} title="拍摄中" />
+          <span className={`lamp ${settings.flashEnabled ? 'on amber' : ''}`} title="闪光灯就绪" />
+          <span className={`lamp ${settings.bracketingEnabled ? 'on' : ''}`} title="包围曝光" />
         </div>
       </div>
-      {flash && <div className="shutter-flash" />}
+
+      <div className="viewfinder" ref={hostRef}>
+        {error && <div className="gl-error">WebGL 初始化失败：{error}</div>}
+        <div className="vf-overlay">
+          {/* 顶部状态条：真机取景器里的曝光参数行 */}
+          <div className="vf-topbar">
+            <span className="rec-dot" />
+            <span className="vf-mode">{settings.focusMode === 'auto' ? 'AF' : 'MF'}</span>
+            <span className="vf-sep" />
+            <span>{formatDriveMode(settings.driveMode)}</span>
+            <span className="vf-sep" />
+            <span>{settings.shutterType === 'electronic' ? 'ES' : 'MS'}</span>
+            <span className="vf-spacer" />
+            <span className="vf-mono">{settings.wbTemp}K {WB_LABEL[settings.wbPreset] ?? ''}</span>
+            <span className="vf-spacer" />
+            <span className="vf-mono">{fps} FPS</span>
+          </div>
+
+          {/* 对焦点 */}
+          <div className="focus-box" style={{ left: `${settings.focusPoint.x * 100}%`, top: `${settings.focusPoint.y * 100}%` }}>
+            <span className="corner tl" /><span className="corner tr" />
+            <span className="corner bl" /><span className="corner br" />
+            <span className="focus-label">{settings.focusMode === 'auto' ? 'AF' : 'MF'}</span>
+          </div>
+
+          {settings.guides && (
+            <div className="grid-lines">
+              <div className="third-v" /><div className="third-v2" />
+              <div className="third-h" /><div className="third-h2" />
+            </div>
+          )}
+          {settings.level && (
+            <div className="level-overlay" style={{ transform: `translate(-50%,-50%) rotate(${-cameraRoll}deg)` }}>
+              <div className="level-line" />
+              <span className="level-label">水平 {cameraRoll.toFixed(1)}°</span>
+            </div>
+          )}
+          {settings.zebra && <div className="zebra-hint">斑马纹：高亮区域叠加斜纹</div>}
+          {countdown > 0 && <div className="countdown">{countdown}</div>}
+
+          {/* 左侧竖向状态列：真机右侧信息栏的等价物 */}
+          <div className="vf-status">
+            <span>{settings.shutterType === 'electronic' ? '电子快门' : '机械快门'}</span>
+            <span>
+              {settings.stabilization ? 'IS ON' : 'IS OFF'} {handheldSafe ? '· 手持安全' : '· 建议使用三脚架'}
+              {settings.stabilization && <span className="hint"> · 等效 {formatShutterLabel(effectiveSafeShutter)}</span>}
+            </span>
+            {settings.ndStops > 0 && <span>ND {settings.ndStops} 档 · 等效 {formatShutterLabel(settings.shutter * Math.pow(2, settings.ndStops))}</span>}
+            {settings.flashEnabled && <span title={flashSyncDescription(settings.flashSync, settings.shutter)}>闪光 {settings.flashPowerEV >= 0 ? '+' : ''}{settings.flashPowerEV}EV · {settings.flashSync === 'front' ? '前帘' : '后帘'}</span>}
+            {settings.bracketingEnabled && (
+              <span>BKT {bracketEVs(settings.bracketFrames, settings.bracketStepEV).map((e) => (e > 0 ? `+${e}` : e)).join('/')}{settings.hdrEnabled ? ' · HDR' : ''}</span>
+            )}
+          </div>
+
+          {/* 底部：左=参数读数（真机底栏），中=快门按钮，右=镜头/白平衡信息 */}
+          <div className="vf-bottom">
+            <div className="vf-readout">
+              <div className="readout-main">
+                <span className="readout-shutter">{formatShutterLabel(settings.shutter)}</span>
+                <span className="readout-ap">f/{settings.aperture.toFixed(1)}</span>
+                <span className="readout-iso">ISO {settings.iso}</span>
+              </div>
+              <div className="readout-sub">
+                测光建议 {formatShutterLabel(meterShutter)} · 偏差 {evDelta >= 0 ? '+' : ''}{evDelta.toFixed(2)} EV
+              </div>
+            </div>
+
+            <button className="shutter-btn" onClick={shoot} disabled={shooting} title="拍摄（空格）">
+              <span className="shutter-ring" />
+              <span className="shutter-inner" />
+            </button>
+
+            <div className="vf-right">
+              <span className="readout-focal">{settings.focalLength.toFixed(0)}mm</span>
+              <span className="vf-mono">{sensor.label} {settings.fileFormat.toUpperCase()}</span>
+            </div>
+          </div>
+
+          {/* 底部曝光条：真机取景器底部的 ±EV 刻度 */}
+          <div className="vf-evbar">
+            <span>-</span>
+            {[-3, -2, -1, 0, 1, 2, 3].map((v) => <i key={v} className={v === 0 ? 'ev-zero' : ''} />)}
+            <span>+</span>
+            <b style={{ left: `${Math.max(0, Math.min(100, ((Math.max(-3, Math.min(3, evDelta)) + 3) / 6) * 100))}%` }} />
+          </div>
+        </div>
+        {flash && <div className="shutter-flash" />}
+      </div>
+
+      {/* 机身右肩：镜头释放钮 / 回放 / 删除（装饰性拨钮，点击进回放） */}
+      <div className="body-shoulder right">
+        <button className="body-btn" onClick={() => useCameraStore.getState().setShowPlayback(true)} title="回放">▶</button>
+        <button className="body-btn" onClick={() => useCameraStore.getState().resetCamera()} title="重置相机参数">↺</button>
+      </div>
     </div>
   );
 }
